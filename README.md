@@ -5,6 +5,8 @@ Simple hot-seat Go Fish web app for two players on one computer.
 ## Run
 
 - Open `index.html` in a browser.
+- Use the Opponent toggle in the header to switch between Human and AI.
+- Table talk keeps the latest moves in a scrollable list.
 
 ## Rules
 

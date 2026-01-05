@@ -3,6 +3,7 @@ const SUITS = ["S", "H", "D", "C"];
 const STARTING_HAND = 7;
 const REFILL_HAND = 5;
 const MAX_LOG = 12;
+const AI_THINK_DELAY = 700;
 
 const state = {
   players: [],
@@ -11,6 +12,16 @@ const state = {
   phase: "handoff",
   log: [],
   winner: null,
+  settings: {
+    aiEnabled: true,
+  },
+  ai: {
+    playerIndex: 1,
+    pendingAction: false,
+    tick: 0,
+    timerId: null,
+    memory: null,
+  },
 };
 
 const elements = {
@@ -28,13 +39,16 @@ const elements = {
   rulesPanel: document.getElementById("rulesPanel"),
   toggleRulesBtn: document.getElementById("toggleRulesBtn"),
   newGameBtn: document.getElementById("newGameBtn"),
+  opponentAiBtn: document.getElementById("opponentAiBtn"),
+  opponentHumanBtn: document.getElementById("opponentHumanBtn"),
+  player1Name: document.getElementById("player1Name"),
+  player2Name: document.getElementById("player2Name"),
   players: [
     {
       panel: document.getElementById("player1Panel"),
       badge: document.getElementById("player1Badge"),
       cards: document.getElementById("player1Cards"),
       booksCount: document.getElementById("player1BooksCount"),
-      hand: document.getElementById("player1Hand"),
       books: document.getElementById("player1Books"),
     },
     {
@@ -42,11 +56,62 @@ const elements = {
       badge: document.getElementById("player2Badge"),
       cards: document.getElementById("player2Cards"),
       booksCount: document.getElementById("player2BooksCount"),
-      hand: document.getElementById("player2Hand"),
       books: document.getElementById("player2Books"),
     },
   ],
 };
+
+function createRankMap(value) {
+  const map = {};
+  for (const rank of RANKS) {
+    map[rank] = value;
+  }
+  return map;
+}
+
+function initAiMemory() {
+  return {
+    lastOpponentAsk: createRankMap(null),
+    lastOpponentSuccess: createRankMap(null),
+    lastAIGoFish: createRankMap(null),
+    lastAITook: createRankMap(null),
+  };
+}
+
+function resetAiState() {
+  if (state.ai.timerId) {
+    clearTimeout(state.ai.timerId);
+  }
+  state.ai.pendingAction = false;
+  state.ai.tick = 0;
+  state.ai.timerId = null;
+  state.ai.memory = initAiMemory();
+}
+
+function isAiEnabled() {
+  return state.settings.aiEnabled;
+}
+
+function isAiPlayer(index) {
+  return isAiEnabled() && index === state.ai.playerIndex;
+}
+
+function getOpponentIndex(index) {
+  return (index + 1) % state.players.length;
+}
+
+function updatePlayerNames() {
+  const opponentName = isAiEnabled() ? "AI" : "Player 2";
+  state.players[0].name = "Player 1";
+  state.players[1].name = opponentName;
+  elements.player1Name.textContent = state.players[0].name;
+  elements.player2Name.textContent = state.players[1].name;
+  const aiActive = isAiEnabled();
+  elements.opponentAiBtn.classList.toggle("active", aiActive);
+  elements.opponentAiBtn.setAttribute("aria-pressed", aiActive ? "true" : "false");
+  elements.opponentHumanBtn.classList.toggle("active", !aiActive);
+  elements.opponentHumanBtn.setAttribute("aria-pressed", !aiActive ? "true" : "false");
+}
 
 function createPlayers() {
   return [
@@ -119,6 +184,96 @@ function getCounts(hand) {
   return counts;
 }
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function binaryEntropy(probability) {
+  if (probability <= 0 || probability >= 1) {
+    return 0;
+  }
+  return -(probability * Math.log2(probability) + (1 - probability) * Math.log2(1 - probability));
+}
+
+function getRemainingCopies(rank, aiIndex, aiCounts) {
+  const aiPlayer = state.players[aiIndex];
+  const opponent = state.players[getOpponentIndex(aiIndex)];
+  if (aiPlayer.books.includes(rank) || opponent.books.includes(rank)) {
+    return 0;
+  }
+  return Math.max(0, 4 - aiCounts[rank]);
+}
+
+function estimateOpponentProbability(rank, aiIndex, aiCounts, opponentHandSize) {
+  const unknownCopies = getRemainingCopies(rank, aiIndex, aiCounts);
+  const totalUnknownCards = state.deck.length + opponentHandSize;
+  if (unknownCopies <= 0 || opponentHandSize <= 0 || totalUnknownCards <= 0) {
+    return {
+      probHas: 0,
+      expectedCount: 0,
+      unknownCopies,
+      totalUnknownCards,
+    };
+  }
+
+  const cappedCopies = Math.min(unknownCopies, totalUnknownCards);
+  let probNone = 1;
+  for (let i = 0; i < opponentHandSize; i += 1) {
+    const remaining = totalUnknownCards - i;
+    const withoutRank = totalUnknownCards - cappedCopies - i;
+    probNone *= clamp(withoutRank / remaining, 0, 1);
+  }
+  const probHas = clamp(1 - probNone, 0, 1);
+  const expectedCount = (cappedCopies * opponentHandSize) / totalUnknownCards;
+  return {
+    probHas,
+    expectedCount,
+    unknownCopies: cappedCopies,
+    totalUnknownCards,
+  };
+}
+
+function ageFrom(lastTick) {
+  if (lastTick === null) {
+    return null;
+  }
+  return Math.max(0, state.ai.tick - lastTick);
+}
+
+function decay(base, age, rate) {
+  return Math.max(0, base - age * rate);
+}
+
+function memoryBias(rank) {
+  const memory = state.ai.memory;
+  let bias = 0;
+  const askAge = ageFrom(memory.lastOpponentAsk[rank]);
+  if (askAge !== null) {
+    bias += decay(0.22, askAge, 0.04);
+  }
+  const successAge = ageFrom(memory.lastOpponentSuccess[rank]);
+  if (successAge !== null) {
+    bias += decay(0.32, successAge, 0.05);
+  }
+  const missAge = ageFrom(memory.lastAIGoFish[rank]);
+  if (missAge !== null) {
+    bias -= decay(0.28, missAge, 0.05);
+  }
+  const tookAge = ageFrom(memory.lastAITook[rank]);
+  if (tookAge !== null) {
+    bias -= decay(0.2, tookAge, 0.04);
+  }
+  return bias;
+}
+
+function bumpAiTick() {
+  if (!isAiEnabled()) {
+    return null;
+  }
+  state.ai.tick += 1;
+  return state.ai.tick;
+}
+
 function handHasRank(hand, rank) {
   return hand.some((card) => card.rank === rank);
 }
@@ -163,6 +318,14 @@ function logBooks(player, books) {
   if (!books.length) {
     return;
   }
+  if (isAiEnabled()) {
+    for (const rank of books) {
+      state.ai.memory.lastOpponentAsk[rank] = null;
+      state.ai.memory.lastOpponentSuccess[rank] = null;
+      state.ai.memory.lastAIGoFish[rank] = null;
+      state.ai.memory.lastAITook[rank] = null;
+    }
+  }
   if (books.length === 1) {
     addLog(`${player.name} books ${books[0]}.`);
     return;
@@ -180,6 +343,8 @@ function getOpponent() {
 
 function newGame() {
   state.players = createPlayers();
+  updatePlayerNames();
+  resetAiState();
   state.deck = shuffle(createDeck());
   state.currentPlayer = 0;
   state.phase = "handoff";
@@ -248,6 +413,112 @@ function checkGameOver() {
   return false;
 }
 
+function updateAiMemoryForAsk(askerIndex, rank, takenCount, tick) {
+  if (!isAiEnabled()) {
+    return;
+  }
+
+  const aiIndex = state.ai.playerIndex;
+  if (askerIndex === aiIndex) {
+    if (takenCount > 0) {
+      state.ai.memory.lastAITook[rank] = tick;
+    } else {
+      state.ai.memory.lastAIGoFish[rank] = tick;
+    }
+    return;
+  }
+
+  if (askerIndex === getOpponentIndex(aiIndex)) {
+    state.ai.memory.lastOpponentAsk[rank] = tick;
+    if (takenCount > 0) {
+      state.ai.memory.lastOpponentSuccess[rank] = tick;
+    }
+  }
+}
+
+function chooseAiRank() {
+  const aiIndex = state.ai.playerIndex;
+  const aiPlayer = state.players[aiIndex];
+  const counts = getCounts(aiPlayer.hand);
+  const available = RANKS.filter((rank) => counts[rank] > 0);
+  if (available.length === 0) {
+    return null;
+  }
+
+  const opponentIndex = getOpponentIndex(aiIndex);
+  const opponentHandSize = state.players[opponentIndex].hand.length;
+
+  let bestRank = available[0];
+  let bestScore = -Infinity;
+
+  for (const rank of available) {
+    const base = estimateOpponentProbability(rank, aiIndex, counts, opponentHandSize);
+    const bias = memoryBias(rank);
+    const adjustedProb = clamp(base.probHas + bias, 0, 1);
+    const entropy = binaryEntropy(adjustedProb);
+    const expectedNormalized =
+      base.unknownCopies === 0 ? 0 : base.expectedCount / base.unknownCopies;
+    const memoryScore = clamp(0.5 + bias, 0, 1);
+    const greedyScore = counts[rank] / 4;
+
+    const score =
+      expectedNormalized * 0.55 + entropy * 0.25 + memoryScore * 0.12 + greedyScore * 0.08;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestRank = rank;
+      continue;
+    }
+    if (score === bestScore && counts[rank] > counts[bestRank]) {
+      bestRank = rank;
+    }
+  }
+
+  return bestRank;
+}
+
+function aiTakeTurn() {
+  if (!isAiEnabled() || !isAiPlayer(state.currentPlayer) || state.phase !== "play") {
+    return;
+  }
+
+  const player = getActivePlayer();
+  if (player.hand.length === 0) {
+    advanceTurn();
+    return;
+  }
+
+  // AI uses only public info (its hand, books, opponent hand size, and observed asks).
+  const rank = chooseAiRank();
+  if (!rank) {
+    return;
+  }
+  handleAsk(rank);
+}
+
+function scheduleAiAction() {
+  if (!isAiEnabled() || state.phase === "gameover" || !isAiPlayer(state.currentPlayer)) {
+    return;
+  }
+  if (state.ai.pendingAction) {
+    return;
+  }
+
+  state.ai.pendingAction = true;
+  const delay = AI_THINK_DELAY + Math.floor(Math.random() * 350);
+  state.ai.timerId = setTimeout(() => {
+    state.ai.pendingAction = false;
+    state.ai.timerId = null;
+    if (state.phase === "handoff") {
+      beginPlay();
+      return;
+    }
+    if (state.phase === "play") {
+      aiTakeTurn();
+    }
+  }, delay);
+}
+
 function handleAsk(rank) {
   if (state.phase !== "play") {
     return;
@@ -258,10 +529,13 @@ function handleAsk(rank) {
     return;
   }
 
+  const askTick = bumpAiTick();
+  const askerIndex = state.currentPlayer;
   const opponent = getOpponent();
   addLog(`${player.name} asks for ${rank}.`);
 
   const taken = takeCardsByRank(opponent.hand, rank);
+  updateAiMemoryForAsk(askerIndex, rank, taken.length, askTick);
   if (taken.length > 0) {
     player.hand.push(...taken);
     addLog(`${opponent.name} gives ${taken.length} card(s).`);
@@ -327,49 +601,7 @@ function renderPlayerPanel(index) {
   panel.cards.textContent = player.hand.length;
   panel.booksCount.textContent = player.books.length;
 
-  const reveal = state.phase === "gameover" || isActive;
-  renderHand(panel.hand, player, reveal);
   renderBooks(panel.books, player);
-}
-
-function renderHand(target, player, reveal) {
-  target.innerHTML = "";
-
-  if (!reveal) {
-    const message = document.createElement("div");
-    message.className = "hand-message";
-    message.textContent = `Hand hidden. ${player.hand.length} card(s).`;
-    target.appendChild(message);
-    return;
-  }
-
-  if (player.hand.length === 0) {
-    const message = document.createElement("div");
-    message.className = "hand-message";
-    message.textContent = "No cards in hand.";
-    target.appendChild(message);
-    return;
-  }
-
-  const counts = getCounts(player.hand);
-  for (const rank of RANKS) {
-    if (counts[rank] === 0) {
-      continue;
-    }
-    const chip = document.createElement("div");
-    chip.className = "rank-chip";
-
-    const rankSpan = document.createElement("span");
-    rankSpan.className = "rank";
-    rankSpan.textContent = rank;
-
-    const countSpan = document.createElement("span");
-    countSpan.className = "count";
-    countSpan.textContent = `x${counts[rank]}`;
-
-    chip.append(rankSpan, countSpan);
-    target.appendChild(chip);
-  }
 }
 
 function renderBooks(target, player) {
@@ -401,6 +633,14 @@ function renderAskButtons() {
     return;
   }
 
+  if (isAiPlayer(state.currentPlayer)) {
+    const message = document.createElement("div");
+    message.className = "hand-message";
+    message.textContent = "AI is choosing a rank.";
+    elements.askButtons.appendChild(message);
+    return;
+  }
+
   const player = getActivePlayer();
   const counts = getCounts(player.hand);
   const available = RANKS.filter((rank) => counts[rank] > 0);
@@ -408,7 +648,7 @@ function renderAskButtons() {
   if (available.length === 0) {
     const message = document.createElement("div");
     message.className = "hand-message";
-    message.textContent = "No ranks to ask for.";
+    message.textContent = "No cards in hand.";
     elements.askButtons.appendChild(message);
     return;
   }
@@ -434,12 +674,20 @@ function renderAskButtons() {
 
 function renderStatus() {
   if (state.phase === "play") {
+    if (isAiPlayer(state.currentPlayer)) {
+      elements.statusText.textContent = "AI is thinking.";
+      return;
+    }
     const player = getActivePlayer();
-    elements.statusText.textContent = `${player.name}, choose a rank to ask for.`;
+    elements.statusText.textContent = `${player.name}, click a rank in your hand.`;
     return;
   }
   if (state.phase === "gameover") {
     elements.statusText.textContent = "Game over. Review the final books.";
+    return;
+  }
+  if (isAiPlayer(state.currentPlayer)) {
+    elements.statusText.textContent = "AI is preparing a move.";
     return;
   }
   const player = getActivePlayer();
@@ -464,7 +712,13 @@ function renderLog() {
 }
 
 function renderOverlay() {
+  elements.overlayAction.hidden = false;
   if (state.phase === "handoff") {
+    if (isAiPlayer(state.currentPlayer)) {
+      elements.overlay.classList.remove("is-visible");
+      elements.overlay.setAttribute("aria-hidden", "true");
+      return;
+    }
     const player = getActivePlayer();
     elements.overlayTitle.textContent = "Pass the screen";
     elements.overlayHeading.textContent = `${player.name}, your turn`;
@@ -504,9 +758,13 @@ function render() {
   renderStatus();
   renderLog();
   renderOverlay();
+  scheduleAiAction();
 }
 
 elements.askButtons.addEventListener("click", (event) => {
+  if (isAiPlayer(state.currentPlayer)) {
+    return;
+  }
   const button = event.target.closest("button[data-rank]");
   if (!button) {
     return;
@@ -519,6 +777,22 @@ elements.overlayAction.addEventListener("click", () => {
 });
 
 elements.newGameBtn.addEventListener("click", () => {
+  newGame();
+});
+
+elements.opponentAiBtn.addEventListener("click", () => {
+  if (state.settings.aiEnabled) {
+    return;
+  }
+  state.settings.aiEnabled = true;
+  newGame();
+});
+
+elements.opponentHumanBtn.addEventListener("click", () => {
+  if (!state.settings.aiEnabled) {
+    return;
+  }
+  state.settings.aiEnabled = false;
   newGame();
 });
 

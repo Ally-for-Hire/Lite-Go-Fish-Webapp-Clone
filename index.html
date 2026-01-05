@@ -23,6 +23,17 @@
           <button class="btn ghost" id="toggleRulesBtn" type="button">
             Rules
           </button>
+          <div class="opponent-control" role="group" aria-label="Opponent">
+            <span class="toggle-label">Opponent</span>
+            <div class="toggle-group">
+              <button class="toggle-btn" id="opponentAiBtn" type="button">
+                AI
+              </button>
+              <button class="toggle-btn" id="opponentHumanBtn" type="button">
+                Human
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -58,17 +69,14 @@
               Books <strong id="player1BooksCount">0</strong>
             </div>
           </div>
-          <div class="hand" id="player1Hand"></div>
           <div class="books" id="player1Books"></div>
         </div>
 
         <div class="center-panel">
           <div class="prompt-card">
             <div class="prompt-header">
-              <h2>Pick a rank to ask for</h2>
-              <p class="prompt-sub">
-                You can only ask for ranks you already hold.
-              </p>
+              <h2>Your hand</h2>
+              <p class="prompt-sub">Click a rank to ask for it.</p>
             </div>
             <div class="rank-grid" id="askButtons"></div>
             <p class="status-text" id="statusText">
@@ -100,7 +108,6 @@
               Books <strong id="player2BooksCount">0</strong>
             </div>
           </div>
-          <div class="hand" id="player2Hand"></div>
           <div class="books" id="player2Books"></div>
         </div>
       </section>
@@ -121,7 +128,7 @@
           <li>The game ends when all 13 books are made.</li>
         </ol>
         <p class="rules-note">
-          Hands are hidden during the handoff screen. Keep it fair.
+          Hands are hidden during the handoff screen. AI turns run automatically.
         </p>
       </section>
     </main>
