@@ -1,4 +1,4 @@
-# Lite Go Fish
+# Lite-Go-Fish-Webapp-Clone
 
 Simple hot-seat Go Fish web app for two players on one computer.
 
