@@ -11,7 +11,7 @@ const state = {
   players: [],
   deck: [],
   currentPlayer: 0,
-  phase: "handoff",
+  phase: "play",
   log: [],
   winner: null,
   settings: {
@@ -407,7 +407,7 @@ function newGame() {
   resetAiState();
   state.deck = shuffle(createDeck());
   state.currentPlayer = 0;
-  state.phase = "handoff";
+  state.phase = "play";
   state.log = [];
   state.winner = null;
   addLog("New game started. Player 1 begins.");
@@ -444,7 +444,7 @@ function beginPlay() {
 
 function advanceTurn() {
   state.currentPlayer = (state.currentPlayer + 1) % state.players.length;
-  state.phase = "handoff";
+  state.phase = "play";
   render();
 }
 
@@ -819,10 +819,6 @@ function scheduleAiAction() {
   state.ai.timerId = setTimeout(() => {
     state.ai.pendingAction = false;
     state.ai.timerId = null;
-    if (state.phase === "handoff") {
-      beginPlay();
-      return;
-    }
     if (state.phase === "play") {
       void aiTakeTurn();
     }
@@ -1023,38 +1019,7 @@ function renderLog() {
 }
 
 function renderOverlay() {
-  elements.overlayAction.hidden = false;
-  if (state.phase === "handoff") {
-    if (isAiPlayer(state.currentPlayer)) {
-      elements.overlay.classList.remove("is-visible");
-      elements.overlay.setAttribute("aria-hidden", "true");
-      return;
-    }
-    const player = getActivePlayer();
-    elements.overlayTitle.textContent = "Pass the screen";
-    elements.overlayHeading.textContent = `${player.name}, your turn`;
-    elements.overlayMessage.textContent =
-      "Only you should look at the screen. Click when you are ready.";
-    elements.overlayAction.textContent = "I am ready";
-    elements.overlay.classList.add("is-visible");
-    elements.overlay.setAttribute("aria-hidden", "false");
-    return;
-  }
-
-  if (state.phase === "gameover") {
-    const [player1, player2] = state.players;
-    const winner = state.winner === "Tie" ? "It is a tie." : `${state.winner} wins.`;
-    elements.overlayTitle.textContent = "Game over";
-    elements.overlayHeading.textContent = winner;
-    elements.overlayMessage.textContent = `${player1.name} ${player1.books.length} - ${player2.books.length} ${player2.name}`;
-    elements.overlayAction.textContent = "Play again";
-    elements.overlay.classList.add("is-visible");
-    elements.overlay.setAttribute("aria-hidden", "false");
-    return;
-  }
-
-  elements.overlay.classList.remove("is-visible");
-  elements.overlay.setAttribute("aria-hidden", "true");
+  // Overlay removed by request.
 }
 
 function render() {
@@ -1084,9 +1049,11 @@ elements.askButtons.addEventListener("click", (event) => {
   handleAsk(button.dataset.rank);
 });
 
-elements.overlayAction.addEventListener("click", () => {
-  beginPlay();
-});
+if (elements.overlayAction) {
+  elements.overlayAction.addEventListener("click", () => {
+    beginPlay();
+  });
+}
 
 elements.newGameBtn.addEventListener("click", () => {
   newGame();
