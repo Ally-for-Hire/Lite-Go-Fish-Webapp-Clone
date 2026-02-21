@@ -5,6 +5,7 @@ const REFILL_HAND = 5;
 const MAX_LOG = 12;
 const AI_THINK_DELAY = 700;
 const AI_DIFFICULTY = "dad-slayer";
+const CLAUDE_MOVE_TIMEOUT_MS = 900;
 
 const state = {
   players: [],
@@ -24,6 +25,11 @@ const state = {
     memory: null,
     difficulty: AI_DIFFICULTY,
     inference: null,
+    claude: {
+      enabled: false,
+      timeoutMs: CLAUDE_MOVE_TIMEOUT_MS,
+      mode: "assist", // "assist" => fallback to local; "only" => no fallback
+    },
   },
 };
 
@@ -885,6 +891,71 @@ function softmaxPick(candidates, temperature) {
   return scaled[scaled.length - 1].rank;
 }
 
+function buildClaudeStateSnapshot(aiIndex) {
+  const aiPlayer = state.players[aiIndex];
+  const opponentIndex = getOpponentIndex(aiIndex);
+  const opponent = state.players[opponentIndex];
+  const aiCounts = getCounts(aiPlayer.hand);
+
+  return {
+    schemaVersion: 1,
+    game: {
+      deckCount: state.deck.length,
+      aiBooks: [...aiPlayer.books],
+      opponentBooks: [...opponent.books],
+      opponentHandSize: opponent.hand.length,
+      aiHandCounts: aiCounts,
+      ranks: [...RANKS],
+    },
+    inference: {
+      likelyOpponentHas: { ...state.ai.inference.likelyOpponentHas },
+      confidence: { ...state.ai.inference.confidence },
+    },
+    memory: {
+      lastOpponentAsk: { ...state.ai.memory.lastOpponentAsk },
+      lastOpponentSuccess: { ...state.ai.memory.lastOpponentSuccess },
+      lastAIGoFish: { ...state.ai.memory.lastAIGoFish },
+      lastAITook: { ...state.ai.memory.lastAITook },
+    },
+    legalActions: RANKS.filter((r) => aiCounts[r] > 0).map((rank) => ({ type: "ask_rank", rank })),
+  };
+}
+
+function validateClaudeMoveAction(action, legalRanks) {
+  if (!action || action.type !== "ask_rank") {
+    return null;
+  }
+  if (!legalRanks.includes(action.rank)) {
+    return null;
+  }
+  return action.rank;
+}
+
+async function getClaudeMove(aiIndex) {
+  const provider = window.claudePolicy;
+  const cfg = state.ai.claude || {};
+  if (!cfg.enabled || !provider || typeof provider.getMove !== "function") {
+    return null;
+  }
+
+  const snapshot = buildClaudeStateSnapshot(aiIndex);
+  const legalRanks = snapshot.legalActions.map((a) => a.rank);
+  if (legalRanks.length === 0) {
+    return null;
+  }
+
+  const timeoutMs = Math.max(100, cfg.timeoutMs || CLAUDE_MOVE_TIMEOUT_MS);
+  const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs));
+
+  try {
+    const action = await Promise.race([provider.getMove(snapshot), timeoutPromise]);
+    return validateClaudeMoveAction(action, legalRanks);
+  } catch (err) {
+    console.warn("Claude move provider failed:", err);
+    return null;
+  }
+}
+
 function chooseAiRank() {
   const aiIndex = state.ai.playerIndex;
   const aiPlayer = state.players[aiIndex];
@@ -988,11 +1059,12 @@ function chooseAiRank() {
   return picked || bestRank;
 }
 
-function aiTakeTurn() {
+async function aiTakeTurn() {
   if (!isAiEnabled() || !isAiPlayer(state.currentPlayer) || state.phase !== "play") {
     return;
   }
 
+  const aiIndex = state.ai.playerIndex;
   const player = getActivePlayer();
   if (player.hand.length === 0) {
     advanceTurn();
@@ -1000,12 +1072,35 @@ function aiTakeTurn() {
   }
 
   // AI uses only public info (its hand, books, opponent hand size, and observed asks).
-  const rank = chooseAiRank();
+  let rank = await getClaudeMove(aiIndex);
+  if (!rank) {
+    const mode = (state.ai.claude && state.ai.claude.mode) || "assist";
+    if (mode === "only") {
+      return;
+    }
+    rank = chooseAiRank();
+  }
+
   if (!rank) {
     return;
   }
+
+  if (!isAiEnabled() || !isAiPlayer(state.currentPlayer) || state.phase !== "play") {
+    return;
+  }
+
   handleAsk(rank);
 }
+
+// Optional Claude policy adapter contract:
+// window.claudePolicy = {
+//   getMove: async (snapshot) => ({ type: "ask_rank", rank: "7" })
+// };
+//
+// snapshot has:
+// - game.aiHandCounts / game.opponentHandSize / books / deckCount
+// - inference + memory maps
+// - legalActions[]
 
 function scheduleAiAction() {
   if (!isAiEnabled() || state.phase === "gameover" || !isAiPlayer(state.currentPlayer)) {
@@ -1025,7 +1120,7 @@ function scheduleAiAction() {
       return;
     }
     if (state.phase === "play") {
-      aiTakeTurn();
+      void aiTakeTurn();
     }
   }, delay);
 }
