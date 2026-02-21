@@ -31,6 +31,8 @@ const elements = {
   deckCount: document.getElementById("deckCount"),
   turnLabel: document.getElementById("turnLabel"),
   booksTotal: document.getElementById("booksTotal"),
+  aiModeStat: document.getElementById("aiModeStat"),
+  aiModeLabel: document.getElementById("aiModeLabel"),
   askButtons: document.getElementById("askButtons"),
   statusText: document.getElementById("statusText"),
   logList: document.getElementById("logList"),
@@ -165,6 +167,14 @@ function updatePlayerNames() {
   elements.opponentAiBtn.setAttribute("aria-pressed", aiActive ? "true" : "false");
   elements.opponentHumanBtn.classList.toggle("active", !aiActive);
   elements.opponentHumanBtn.setAttribute("aria-pressed", !aiActive ? "true" : "false");
+
+  const modeText = (state.ai.difficulty || "normal").replace(/-/g, " ");
+  if (elements.aiModeLabel) {
+    elements.aiModeLabel.textContent = modeText.replace(/\b\w/g, (m) => m.toUpperCase());
+  }
+  if (elements.aiModeStat) {
+    elements.aiModeStat.hidden = !aiActive;
+  }
 
   if (elements.aiDifficultySelect) {
     elements.aiDifficultySelect.value = state.ai.difficulty || "normal";
