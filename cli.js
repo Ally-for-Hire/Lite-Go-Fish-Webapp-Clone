@@ -16,7 +16,7 @@ function loadPolicyFn(file) {
 const policyFns = {
   random: loadPolicyFn("./policies/random"),
   dadslayer: loadPolicyFn("./policies/dadslayer"),
-  otherai: loadPolicyFn("./policies/otherai"),
+  otherai: loadPolicyFn("./policies/clawbuddy-v1"),
 };
 
 function out(payload) {
