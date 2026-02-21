@@ -667,7 +667,7 @@ function chooseAiRank() {
   const policy = window.GoFishPolicies && window.GoFishPolicies[policyName];
 
   if (policy && typeof policy.pickMove === "function") {
-    const action = policy.pickMove({ state, legalActions, playerIndex: aiIndex, RANKS, getCounts });
+    const action = policy.pickMove(state, legalActions, aiIndex);
     if (action && legalActions.some((m) => m.type === action.type && m.rank === action.rank)) {
       return action.rank;
     }
@@ -1175,11 +1175,7 @@ window.GoFishJsonBridge = {
   },
 };
 
-async function bootApp() {
-  if (typeof window.__loadPolicies === "function") {
-    await window.__loadPolicies();
-  }
-
+function bootApp() {
   initPolicySelect();
   initTournamentSelectors();
   if (elements.appModeSelect) {
@@ -1189,4 +1185,4 @@ async function bootApp() {
   newGame();
 }
 
-void bootApp();
+bootApp();
