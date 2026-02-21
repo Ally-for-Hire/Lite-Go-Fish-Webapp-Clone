@@ -1,0 +1,53 @@
+name: Go Fish Tournament
+
+on:
+  workflow_dispatch:
+    inputs:
+      games:
+        description: "Number of games"
+        required: false
+        default: "1000"
+      policyA:
+        description: "Policy A (otherai|dadslayer)"
+        required: false
+        default: "otherai"
+      policyB:
+        description: "Policy B (otherai|dadslayer)"
+        required: false
+        default: "dadslayer"
+  push:
+    branches:
+      - otherai-live
+    paths:
+      - "policies/otherai.js"
+      - "policies/dadslayer.js"
+      - "scripts/run_tournament.js"
+      - "engine.js"
+
+jobs:
+  run-tournament:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run tournament
+        env:
+          GAMES: ${{ github.event.inputs.games || '1000' }}
+          POLICY_A: ${{ github.event.inputs.policyA || 'otherai' }}
+          POLICY_B: ${{ github.event.inputs.policyB || 'dadslayer' }}
+        run: node scripts/run_tournament.js
+
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gofish-results-${{ github.run_id }}
+          path: artifacts/results.json
+
+      - name: Print results JSON
+        run: cat artifacts/results.json
