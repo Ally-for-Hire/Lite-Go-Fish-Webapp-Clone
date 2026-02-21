@@ -43,6 +43,10 @@ Batch policies currently available:
 Policy format/spec:
 - `policies/EXTERNAL_POLICY_FORMAT.md`
 
+Runtime browser policies are now split into separate files:
+- `policies/browser_random.js`
+- `policies/browser_dadslayer.js`
+
 Browser bridge (while GUI remains active):
 
 - `window.GoFishJsonBridge.getState()`
