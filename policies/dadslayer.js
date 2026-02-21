@@ -38,10 +38,11 @@
   function pickMove(state, legalActions, playerIndex) {
     if (!Array.isArray(legalActions) || legalActions.length === 0) return null;
 
+    // Fair-play policy: public information only.
+    // Uses own hand, books, deck size, and opponent hand SIZE (not opponent cards).
     const me = state.players[playerIndex];
-    const opp = state.players[(playerIndex + 1) % 2];
     const myCounts = countHand(me.hand);
-    const oppCounts = countHand(opp.hand);
+    const deckPressure = 1 - Math.min(1, (state.deck || []).length / 52);
 
     let best = legalActions[0];
     let bestScore = -Infinity;
@@ -49,20 +50,20 @@
     for (const move of legalActions) {
       const rank = move.rank;
       const own = myCounts[rank] || 0;
-      const oppHas = oppCounts[rank] || 0;
+      const p = estimateOpponentProbability(state, playerIndex, rank);
 
-      // In current engine policy API, full state is visible.
-      // Maximize immediate capture from opponent, then maximize book conversion.
-      const immediateTake = oppHas;
-      const postTake = own + oppHas;
-      const completesBook = postTake >= 4 ? 1 : 0;
-      const nearBook = postTake === 3 ? 1 : postTake === 2 ? 0.4 : 0;
+      const nearBook = own >= 3 ? 1.2 : own === 2 ? 0.45 : 0;
+      const control = p.probHas * Math.min(1, own / 3);
+      const expectedTake = p.expectedCount;
+      const endgameBoost = deckPressure * (nearBook + control);
 
       const score =
-        immediateTake * 10 +
-        completesBook * 6 +
-        nearBook * 2 +
-        own * 0.5;
+        own * 1.15 +
+        nearBook * 1.1 +
+        p.probHas * 0.95 +
+        expectedTake * 0.55 +
+        control * 0.7 +
+        endgameBoost * 0.6;
 
       if (score > bestScore) {
         bestScore = score;
