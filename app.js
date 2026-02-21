@@ -16,6 +16,7 @@ const state = {
   winner: null,
   settings: {
     aiEnabled: true,
+    mode: "human-vs-ai",
   },
   ai: {
     playerIndex: 1,
@@ -53,6 +54,21 @@ const elements = {
   opponentAiBtn: document.getElementById("opponentAiBtn"),
   opponentHumanBtn: document.getElementById("opponentHumanBtn"),
   aiDifficultySelect: document.getElementById("aiDifficultySelect"),
+  appModeSelect: document.getElementById("appModeSelect"),
+  tournamentPanel: document.getElementById("tournamentPanel"),
+  tableSection: document.getElementById("tableSection"),
+  tournamentPolicyA: document.getElementById("tournamentPolicyA"),
+  tournamentPolicyB: document.getElementById("tournamentPolicyB"),
+  tournamentGames: document.getElementById("tournamentGames"),
+  runTournamentBtn: document.getElementById("runTournamentBtn"),
+  tournamentStatus: document.getElementById("tournamentStatus"),
+  tournamentSummary: document.getElementById("tournamentSummary"),
+  barALabel: document.getElementById("barALabel"),
+  barBLabel: document.getElementById("barBLabel"),
+  barA: document.getElementById("barA"),
+  barB: document.getElementById("barB"),
+  barAText: document.getElementById("barAText"),
+  barBText: document.getElementById("barBText"),
   player1Name: document.getElementById("player1Name"),
   player2Name: document.getElementById("player2Name"),
   players: [
@@ -98,6 +114,35 @@ function initPolicySelect() {
   if (!names.includes(state.ai.difficulty)) {
     state.ai.difficulty = names.includes("dadslayer") ? "dadslayer" : names[0] || AI_DIFFICULTY;
   }
+}
+
+function initTournamentSelectors() {
+  const names = getPolicyNames();
+  if (!elements.tournamentPolicyA || !elements.tournamentPolicyB) return;
+
+  elements.tournamentPolicyA.innerHTML = "";
+  elements.tournamentPolicyB.innerHTML = "";
+
+  for (const name of names) {
+    const a = document.createElement("option");
+    a.value = name;
+    a.textContent = prettyPolicyName(name);
+    elements.tournamentPolicyA.appendChild(a);
+
+    const b = document.createElement("option");
+    b.value = name;
+    b.textContent = prettyPolicyName(name);
+    elements.tournamentPolicyB.appendChild(b);
+  }
+
+  elements.tournamentPolicyA.value = names.includes("dadslayer") ? "dadslayer" : names[0] || "random";
+  elements.tournamentPolicyB.value = names.includes("otherai") ? "otherai" : names[0] || "random";
+}
+
+function applyModeUI() {
+  const isTournament = state.settings.mode === "ai-tournament";
+  if (elements.tournamentPanel) elements.tournamentPanel.hidden = !isTournament;
+  if (elements.tableSection) elements.tableSection.hidden = isTournament;
 }
 
 function createRankMap(value) {
@@ -620,6 +665,78 @@ function chooseAiRank() {
   return legalActions[0].rank;
 }
 
+function resolveTournamentPolicy(name) {
+  const policy = window.GoFishPolicies && window.GoFishPolicies[name];
+  if (!policy || typeof policy.pickMove !== "function") {
+    throw new Error(`Missing policy: ${name}`);
+  }
+  return policy.pickMove;
+}
+
+function updateTournamentBars(aName, bName, aWins, bWins, done) {
+  const total = Math.max(1, done);
+  const aPct = (aWins / total) * 100;
+  const bPct = (bWins / total) * 100;
+  if (elements.barALabel) elements.barALabel.textContent = prettyPolicyName(aName);
+  if (elements.barBLabel) elements.barBLabel.textContent = prettyPolicyName(bName);
+  if (elements.barA) elements.barA.style.width = `${aPct.toFixed(2)}%`;
+  if (elements.barB) elements.barB.style.width = `${bPct.toFixed(2)}%`;
+  if (elements.barAText) elements.barAText.textContent = `${aPct.toFixed(1)}% (${aWins})`;
+  if (elements.barBText) elements.barBText.textContent = `${bPct.toFixed(1)}% (${bWins})`;
+}
+
+async function runTournamentFromGui() {
+  const games = Math.max(1, Number(elements.tournamentGames?.value || 100));
+  const policyAName = elements.tournamentPolicyA?.value || "dadslayer";
+  const policyBName = elements.tournamentPolicyB?.value || "otherai";
+  const policyA = resolveTournamentPolicy(policyAName);
+  const policyB = resolveTournamentPolicy(policyBName);
+
+  let aWins = 0;
+  let bWins = 0;
+  let ties = 0;
+  let turnsTotal = 0;
+
+  if (elements.runTournamentBtn) elements.runTournamentBtn.disabled = true;
+  if (elements.tournamentStatus) elements.tournamentStatus.textContent = `Running ${games} games...`;
+
+  for (let i = 0; i < games; i += 1) {
+    let s = window.GoFishEngine.initGame({ seed: Date.now() + i });
+    let turns = 0;
+
+    while (s.phase === "play" && turns < 10000) {
+      const legal = window.GoFishEngine.legalMoves(s);
+      if (!legal.length) break;
+      const p = s.currentPlayer === 0 ? policyA : policyB;
+      const picked = p(s, legal, s.currentPlayer) || legal[0];
+      const move = legal.some((m) => m.type === picked.type && m.rank === picked.rank) ? picked : legal[0];
+      const res = window.GoFishEngine.applyAction(s, move);
+      s = res.state;
+      turns += 1;
+    }
+
+    window.GoFishEngine.finalizeWinner(s);
+    turnsTotal += turns;
+    if (s.winner === "Tie") ties += 1;
+    else if (s.winner === s.players[0].name) aWins += 1;
+    else bWins += 1;
+
+    if ((i + 1) % 5 === 0 || i === games - 1) {
+      updateTournamentBars(policyAName, policyBName, aWins, bWins, i + 1);
+      if (elements.tournamentStatus) elements.tournamentStatus.textContent = `Running ${i + 1}/${games} games...`;
+      // Let browser paint progress.
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+
+  const avgTurns = (turnsTotal / games).toFixed(2);
+  if (elements.tournamentStatus) elements.tournamentStatus.textContent = `Done. ${games} games complete.`;
+  if (elements.tournamentSummary) {
+    elements.tournamentSummary.textContent = `${prettyPolicyName(policyAName)} wins: ${aWins}, ${prettyPolicyName(policyBName)} wins: ${bWins}, ties: ${ties}, avg turns: ${avgTurns}.`;
+  }
+  if (elements.runTournamentBtn) elements.runTournamentBtn.disabled = false;
+}
+
 async function aiTakeTurn() {
   if (!isAiEnabled() || !isAiPlayer(state.currentPlayer) || state.phase !== "play") {
     return;
@@ -664,6 +781,9 @@ async function aiTakeTurn() {
 // - legalActions[]
 
 function scheduleAiAction() {
+  if (state.settings.mode === "ai-tournament") {
+    return;
+  }
   if (!isAiEnabled() || state.phase === "gameover" || !isAiPlayer(state.currentPlayer)) {
     return;
   }
@@ -915,6 +1035,7 @@ function renderOverlay() {
 }
 
 function render() {
+  applyModeUI();
   const player = getActivePlayer();
   elements.deckCount.textContent = state.deck.length;
   elements.turnLabel.textContent = state.phase === "gameover" ? "Game over" : player.name;
@@ -979,6 +1100,20 @@ elements.toggleRulesBtn.addEventListener("click", () => {
   elements.rulesPanel.hidden = !elements.rulesPanel.hidden;
 });
 
+if (elements.appModeSelect) {
+  elements.appModeSelect.addEventListener("change", () => {
+    state.settings.mode = elements.appModeSelect.value || "human-vs-ai";
+    applyModeUI();
+    render();
+  });
+}
+
+if (elements.runTournamentBtn) {
+  elements.runTournamentBtn.addEventListener("click", () => {
+    void runTournamentFromGui();
+  });
+}
+
 // JSON bridge for remote/CLI-style control while keeping GUI intact.
 window.GoFishJsonBridge = {
   getState() {
@@ -1018,4 +1153,9 @@ window.GoFishJsonBridge = {
 };
 
 initPolicySelect();
+initTournamentSelectors();
+if (elements.appModeSelect) {
+  elements.appModeSelect.value = state.settings.mode;
+}
+applyModeUI();
 newGame();
