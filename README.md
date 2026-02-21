@@ -40,13 +40,8 @@ Batch policies currently available:
 - `dad-slayer`
 - `otherai` (loaded from `policies/otherai.js`)
 
-`otherai` contract:
-```js
-function pickMove(state, legalActions, playerIndex) {
-  return { type: "ask_rank", rank: "7" }; // must be one of legalActions
-}
-module.exports = { pickMove };
-```
+Policy format/spec:
+- `policies/EXTERNAL_POLICY_FORMAT.md`
 
 Browser bridge (while GUI remains active):
 

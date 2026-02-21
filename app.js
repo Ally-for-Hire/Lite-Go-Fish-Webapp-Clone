@@ -958,105 +958,26 @@ async function getClaudeMove(aiIndex) {
 
 function chooseAiRank() {
   const aiIndex = state.ai.playerIndex;
+  const legalActions = [];
   const aiPlayer = state.players[aiIndex];
-  const counts = getCounts(aiPlayer.hand);
-  const available = RANKS.filter((rank) => counts[rank] > 0);
-  if (available.length === 0) {
-    return null;
+  const c = getCounts(aiPlayer.hand);
+  for (const rank of RANKS) {
+    if (c[rank] > 0) legalActions.push({ type: "ask_rank", rank });
   }
+  if (!legalActions.length) return null;
 
-  const opponentIndex = getOpponentIndex(aiIndex);
-  const opponentHandSize = state.players[opponentIndex].hand.length;
-  const deckPressure = clamp(state.deck.length / 52, 0, 1);
-  const style = getAiStyle(deckPressure, counts);
-  const w = getDifficultyWeights();
+  const mode = (state.ai.difficulty || "normal").toLowerCase();
+  const policyName = mode === "easy" ? "random" : "dadslayer";
+  const policy = window.GoFishPolicies && window.GoFishPolicies[policyName];
 
-  normalizeParticles(aiIndex, counts, opponentHandSize);
-  const endgame = state.deck.length <= 10 || opponentHandSize <= 4;
-
-  let bestRank = available[0];
-  let bestScore = -Infinity;
-  const candidates = [];
-
-  for (const rank of available) {
-    const ownCount = counts[rank];
-    const base = estimateOpponentProbability(rank, aiIndex, counts, opponentHandSize);
-    const particle = particleEstimate(rank);
-    const fusedProb = clamp(base.probHas * 0.5 + particle.probHas * 0.5, 0, 1);
-    const fusedExpected = Math.max(base.expectedCount * 0.45 + particle.expectedCount * 0.55, 0);
-    const bias = memoryBias(rank) + inferenceBias(rank);
-    const adjustedProb = clamp(fusedProb + bias, 0, 1);
-
-    const expectedTake = adjustedProb * Math.max(1, fusedExpected);
-    const completionNow = ownCount + expectedTake;
-    const completionScore = clamp(completionNow / 4, 0, 1);
-
-    const nearBookBonus = ownCount >= 3 ? 1 : ownCount === 2 ? 0.45 : 0;
-    const denyScore = estimateOpponentPressure(rank) * clamp(ownCount / 3, 0, 1);
-    const infoScore = binaryEntropy(adjustedProb);
-    const memoryScore = clamp(0.5 + bias, 0, 1);
-    const lookaheadScore = lookaheadValue(rank, ownCount, adjustedProb, expectedTake, deckPressure);
-    const monteCarloScore = monteCarloRankEV(rank, counts, state.deck.length);
-    const infoValue = informationValueScore(rank, fusedProb);
-
-    let endgameScore = 0;
-    if (endgame) {
-      const opCounts = createZeroCounts();
-      for (const r of RANKS) {
-        opCounts[r] = Math.round(particleEstimate(r).expectedCount);
-      }
-      endgameScore = endgameRankScore(rank, counts, opCounts, state.deck.length);
-    }
-
-    let styleCompletion = 1;
-    let styleDeny = 1;
-    let styleInfo = 1;
-
-    if (style === "greedy") {
-      styleCompletion = 1.18;
-      styleDeny = 0.9;
-      styleInfo = 0.82;
-    } else if (style === "deny") {
-      styleCompletion = 0.92;
-      styleDeny = 1.22;
-      styleInfo = 1.05;
-    }
-
-    const score =
-      completionScore * w.completion * styleCompletion +
-      nearBookBonus * w.nearBook +
-      denyScore * w.deny * styleDeny +
-      infoScore * w.info * styleInfo +
-      memoryScore * w.memory +
-      lookaheadScore * w.lookahead +
-      monteCarloScore * w.monteCarlo +
-      infoValue * w.infoValue +
-      (endgame ? endgameScore * 0.02 : 0);
-
-    candidates.push({ rank, score });
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestRank = rank;
-      continue;
-    }
-
-    if (score === bestScore) {
-      if (ownCount > counts[bestRank]) {
-        bestRank = rank;
-        continue;
-      }
-      const denyA = estimateOpponentPressure(rank);
-      const denyB = estimateOpponentPressure(bestRank);
-      if (denyA > denyB) {
-        bestRank = rank;
-      }
+  if (policy && typeof policy.pickMove === "function") {
+    const action = policy.pickMove({ state, legalActions, playerIndex: aiIndex, RANKS, getCounts });
+    if (action && legalActions.some((m) => m.type === action.type && m.rank === action.rank)) {
+      return action.rank;
     }
   }
 
-  const nearOptimal = candidates.filter((c) => c.score >= bestScore - 0.08);
-  const picked = softmaxPick(nearOptimal, w.temperature);
-  return picked || bestRank;
+  return legalActions[0].rank;
 }
 
 async function aiTakeTurn() {
