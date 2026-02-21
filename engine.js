@@ -125,6 +125,14 @@
     const legal = legalMoves(state);
     if (!legal.length) return null;
 
+    if (typeof policy === "function") {
+      const proposed = policy(state, legal, playerIndex);
+      if (proposed && legal.some((a) => a.type === proposed.type && a.rank === proposed.rank)) {
+        return proposed;
+      }
+      return legal[0];
+    }
+
     if (policy === "random") {
       return legal[Math.floor(Math.random() * legal.length)];
     }

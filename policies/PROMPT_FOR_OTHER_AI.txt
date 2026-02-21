@@ -1,0 +1,23 @@
+Generate a single JavaScript file for Go Fish policy.
+
+Requirements:
+1) Output only valid JavaScript code.
+2) Define function:
+   pickMove(state, legalActions, playerIndex)
+3) Return exactly one legal action object from legalActions:
+   { type: "ask_rank", rank: "A|2|...|K" }
+4) Never return invalid ranks.
+5) If uncertain, return legalActions[0].
+6) Export with:
+   module.exports = { pickMove };
+
+State summary:
+- state.players[playerIndex] is current player
+- each player has hand (array of {rank,suit}) and books (array of ranks)
+- state.deck.length is cards remaining
+- legalActions is prevalidated list for current turn
+
+Goal:
+- maximize win rate across many games (1000+),
+- prioritize completing books,
+- then deny likely opponent books.
