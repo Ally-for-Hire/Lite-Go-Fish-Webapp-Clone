@@ -93,6 +93,22 @@ function getPolicyNames() {
   return Object.keys(window.GoFishPolicies || {});
 }
 
+function waitForPolicies(maxAttempts = 20, delayMs = 100) {
+  return new Promise((resolve) => {
+    let attempts = 0;
+    const tick = () => {
+      const names = getPolicyNames();
+      if (names.length || attempts >= maxAttempts) {
+        resolve(names);
+        return;
+      }
+      attempts += 1;
+      setTimeout(tick, delayMs);
+    };
+    tick();
+  });
+}
+
 function prettyPolicyName(name) {
   if (!name) return "Unknown";
   return name.replace(/[-_]/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
@@ -1142,7 +1158,8 @@ window.GoFishJsonBridge = {
   },
 };
 
-function bootApp() {
+async function bootApp() {
+  await waitForPolicies();
   initPolicySelect();
   initTournamentSelectors();
   if (elements.appModeSelect) {
@@ -1152,4 +1169,4 @@ function bootApp() {
   newGame();
 }
 
-bootApp();
+void bootApp();
