@@ -4,7 +4,7 @@ const STARTING_HAND = 7;
 const REFILL_HAND = 5;
 const MAX_LOG = 12;
 const AI_THINK_DELAY = 700;
-const AI_DIFFICULTY = "dad-slayer";
+const AI_DIFFICULTY = "dadslayer";
 const CLAUDE_MOVE_TIMEOUT_MS = 900;
 
 const state = {
@@ -73,6 +73,33 @@ const elements = {
   ],
 };
 
+function getPolicyNames() {
+  return Object.keys(window.GoFishPolicies || {});
+}
+
+function prettyPolicyName(name) {
+  if (!name) return "Unknown";
+  return name.replace(/[-_]/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function initPolicySelect() {
+  if (!elements.aiDifficultySelect) return;
+
+  const names = getPolicyNames();
+  elements.aiDifficultySelect.innerHTML = "";
+
+  for (const name of names) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = prettyPolicyName(name);
+    elements.aiDifficultySelect.appendChild(option);
+  }
+
+  if (!names.includes(state.ai.difficulty)) {
+    state.ai.difficulty = names.includes("dadslayer") ? "dadslayer" : names[0] || AI_DIFFICULTY;
+  }
+}
+
 function createRankMap(value) {
   const map = {};
   for (const rank of RANKS) {
@@ -133,16 +160,16 @@ function updatePlayerNames() {
   elements.opponentHumanBtn.classList.toggle("active", !aiActive);
   elements.opponentHumanBtn.setAttribute("aria-pressed", !aiActive ? "true" : "false");
 
-  const modeText = (state.ai.difficulty || "normal").replace(/-/g, " ");
+  const modeText = prettyPolicyName(state.ai.difficulty || AI_DIFFICULTY);
   if (elements.aiModeLabel) {
-    elements.aiModeLabel.textContent = modeText.replace(/\b\w/g, (m) => m.toUpperCase());
+    elements.aiModeLabel.textContent = modeText;
   }
   if (elements.aiModeStat) {
     elements.aiModeStat.hidden = !aiActive;
   }
 
   if (elements.aiDifficultySelect) {
-    elements.aiDifficultySelect.value = state.ai.difficulty || "normal";
+    elements.aiDifficultySelect.value = state.ai.difficulty || AI_DIFFICULTY;
     elements.aiDifficultySelect.disabled = !aiActive;
   }
 }
@@ -580,8 +607,7 @@ function chooseAiRank() {
   }
   if (!legalActions.length) return null;
 
-  const mode = (state.ai.difficulty || "normal").toLowerCase();
-  const policyName = mode === "easy" ? "random" : "dadslayer";
+  const policyName = (state.ai.difficulty || AI_DIFFICULTY).toLowerCase();
   const policy = window.GoFishPolicies && window.GoFishPolicies[policyName];
 
   if (policy && typeof policy.pickMove === "function") {
@@ -816,7 +842,7 @@ function renderAskButtons() {
 function renderStatus() {
   if (state.phase === "play") {
     if (isAiPlayer(state.currentPlayer)) {
-      const mode = (state.ai.difficulty || "normal").replace(/-/g, " ");
+      const mode = prettyPolicyName(state.ai.difficulty || AI_DIFFICULTY);
       elements.statusText.textContent = `AI (${mode}) is thinking.`;
       return;
     }
@@ -940,7 +966,7 @@ elements.opponentHumanBtn.addEventListener("click", () => {
 
 if (elements.aiDifficultySelect) {
   elements.aiDifficultySelect.addEventListener("change", () => {
-    state.ai.difficulty = elements.aiDifficultySelect.value || "normal";
+    state.ai.difficulty = elements.aiDifficultySelect.value || AI_DIFFICULTY;
     if (state.settings.aiEnabled) {
       newGame();
     } else {
@@ -991,4 +1017,5 @@ window.GoFishJsonBridge = {
   },
 };
 
+initPolicySelect();
 newGame();

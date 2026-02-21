@@ -20,13 +20,14 @@ function out(payload) {
 }
 
 function resolvePolicy(name) {
-  if (name === "otherai" && typeof externalPolicy === "function") {
+  const normalized = name === "dad-slayer" ? "dadslayer" : name;
+  if (normalized === "otherai" && typeof externalPolicy === "function") {
     return externalPolicy;
   }
-  return name;
+  return normalized;
 }
 
-function runBatch(games = 1000, policyA = "dad-slayer", policyB = "baseline") {
+function runBatch(games = 1000, policyA = "dadslayer", policyB = "random") {
   const resolvedA = resolvePolicy(policyA);
   const resolvedB = resolvePolicy(policyB);
   const stats = { games, policyA, policyB, p1: 0, p2: 0, tie: 0, avgTurns: 0 };
@@ -55,7 +56,7 @@ function runBatch(games = 1000, policyA = "dad-slayer", policyB = "baseline") {
   return stats;
 }
 
-function runBatchFair(games = 1000, policyA = "dad-slayer", policyB = "baseline") {
+function runBatchFair(games = 1000, policyA = "dadslayer", policyB = "random") {
   const halfAFirst = Math.floor(games / 2);
   const halfBFirst = games - halfAFirst;
 
@@ -130,16 +131,16 @@ rl.on("line", (line) => {
 
   if (cmd === "batch") {
     const games = Number(msg.games || 1000);
-    const policyA = String(msg.policyA || "dad-slayer");
-    const policyB = String(msg.policyB || "baseline");
+    const policyA = String(msg.policyA || "dadslayer");
+    const policyB = String(msg.policyB || "random");
     out({ ok: true, stats: runBatch(games, policyA, policyB) });
     return;
   }
 
   if (cmd === "batch_fair") {
     const games = Number(msg.games || 1000);
-    const policyA = String(msg.policyA || "dad-slayer");
-    const policyB = String(msg.policyB || "baseline");
+    const policyA = String(msg.policyA || "dadslayer");
+    const policyB = String(msg.policyB || "random");
     out({ ok: true, stats: runBatchFair(games, policyA, policyB) });
     return;
   }

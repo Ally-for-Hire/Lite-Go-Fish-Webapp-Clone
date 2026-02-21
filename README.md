@@ -28,24 +28,19 @@ Example commands (one JSON object per line):
 {"cmd":"legal"}
 {"cmd":"step","action":{"type":"ask_rank","rank":"7"}}
 {"cmd":"state"}
-{"cmd":"batch","games":1000,"policyA":"dad-slayer","policyB":"baseline"}
-{"cmd":"batch_fair","games":1000,"policyA":"dad-slayer","policyB":"otherai"}
+{"cmd":"batch","games":1000,"policyA":"dadslayer","policyB":"otherai"}
+{"cmd":"batch_fair","games":1000,"policyA":"dadslayer","policyB":"random"}
 ```
 
 `batch_fair` runs both seat orders (A as P1, then B as P1) and reports combined fair winrates.
 
-Batch policies currently available:
-- `random`
-- `baseline`
-- `dad-slayer`
-- `otherai` (loaded from `policies/otherai.js`)
+Policy files in active use:
+- `policies/random.js`
+- `policies/dadslayer.js`
+- `policies/otherai.js` (external player policy)
 
 Policy format/spec:
 - `policies/EXTERNAL_POLICY_FORMAT.md`
-
-Runtime browser policies are now split into separate files:
-- `policies/browser_random.js`
-- `policies/browser_dadslayer.js`
 
 Browser bridge (while GUI remains active):
 

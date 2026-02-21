@@ -156,8 +156,8 @@
       return best;
     }
 
-    // Dad-Slayer (headless policy approximation): book pressure + deny pressure + info gain.
-    if (policy === "dad-slayer") {
+    // DadSlayer (headless policy approximation): book pressure + deny pressure + info gain.
+    if (policy === "dadslayer" || policy === "dad-slayer") {
       let best = legal[0];
       let bestScore = -Infinity;
 

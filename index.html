@@ -36,12 +36,7 @@
           </div>
           <label class="difficulty-control" for="aiDifficultySelect">
             <span class="toggle-label">AI Mode</span>
-            <select id="aiDifficultySelect" class="difficulty-select">
-              <option value="easy">Easy</option>
-              <option value="normal">Normal</option>
-              <option value="hard">Hard</option>
-              <option value="dad-slayer">Dad-Slayer</option>
-            </select>
+            <select id="aiDifficultySelect" class="difficulty-select"></select>
           </label>
         </div>
       </header>
@@ -160,8 +155,9 @@
     </div>
 
     <script src="engine.js"></script>
-    <script src="policies/browser_random.js"></script>
-    <script src="policies/browser_dadslayer.js"></script>
+    <script src="policies/random.js"></script>
+    <script src="policies/dadslayer.js"></script>
+    <script src="policies/otherai.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
