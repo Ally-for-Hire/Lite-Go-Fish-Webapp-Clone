@@ -29,7 +29,10 @@ Example commands (one JSON object per line):
 {"cmd":"step","action":{"type":"ask_rank","rank":"7"}}
 {"cmd":"state"}
 {"cmd":"batch","games":1000,"policyA":"dad-slayer","policyB":"baseline"}
+{"cmd":"batch_fair","games":1000,"policyA":"dad-slayer","policyB":"otherai"}
 ```
+
+`batch_fair` runs both seat orders (A as P1, then B as P1) and reports combined fair winrates.
 
 Batch policies currently available:
 - `random`
