@@ -78,7 +78,7 @@ function runBatchFair(games, policyAName, policyBName, policyA, policyB) {
 function main() {
   const root = path.resolve(__dirname, "..");
   const games = Number(process.env.GAMES || process.argv[2] || 1000);
-  const rawPolicyA = process.env.POLICY_A || "otherai";
+  const rawPolicyA = process.env.POLICY_A || "random";
   const rawPolicyB = process.env.POLICY_B || "dadslayer";
 
   const alias = (name) => {
@@ -92,16 +92,17 @@ function main() {
   const policyPaths = {
     otherai: path.join(root, "policies", "otherai.js"),
     dadslayer: path.join(root, "policies", "dadslayer.js"),
+    random: null,
   };
 
   const policyAPath = policyPaths[policyAName];
   const policyBPath = policyPaths[policyBName];
-  if (!policyAPath || !policyBPath) {
+  if (!(policyAName in policyPaths) || !(policyBName in policyPaths)) {
     throw new Error(`Unknown policy name(s): ${policyAName}, ${policyBName}`);
   }
 
-  const policyA = loadPolicy(policyAPath);
-  const policyB = loadPolicy(policyBPath);
+  const policyA = policyAName === "random" ? "random" : loadPolicy(policyAPath);
+  const policyB = policyBName === "random" ? "random" : loadPolicy(policyBPath);
 
   const stats = runBatchFair(games, policyAName, policyBName, policyA, policyB);
   const result = {
@@ -109,8 +110,12 @@ function main() {
     commit: process.env.GITHUB_SHA || "local",
     ref: process.env.GITHUB_REF || "local",
     node: process.version,
-    policyA: { name: policyAName, path: path.relative(root, policyAPath), sha256: fileHash(policyAPath) },
-    policyB: { name: policyBName, path: path.relative(root, policyBPath), sha256: fileHash(policyBPath) },
+    policyA: policyAName === "random"
+      ? { name: policyAName, path: null, sha256: null }
+      : { name: policyAName, path: path.relative(root, policyAPath), sha256: fileHash(policyAPath) },
+    policyB: policyBName === "random"
+      ? { name: policyBName, path: null, sha256: null }
+      : { name: policyBName, path: path.relative(root, policyBPath), sha256: fileHash(policyBPath) },
     stats,
   };
 

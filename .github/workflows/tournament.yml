@@ -8,11 +8,11 @@ on:
         required: false
         default: "1000"
       policyA:
-        description: "Policy A (otherai|dadslayer)"
+        description: "Policy A (random|otherai|dadslayer)"
         required: false
-        default: "otherai"
+        default: "random"
       policyB:
-        description: "Policy B (otherai|dadslayer)"
+        description: "Policy B (random|otherai|dadslayer)"
         required: false
         default: "dadslayer"
   push:
@@ -38,8 +38,8 @@ jobs:
 
       - name: Run tournament
         env:
-          GAMES: ${{ github.event.inputs.games || '3' }}
-          POLICY_A: ${{ github.event.inputs.policyA || 'otherai' }}
+          GAMES: ${{ github.event.inputs.games || '1000' }}
+          POLICY_A: ${{ github.event.inputs.policyA || 'random' }}
           POLICY_B: ${{ github.event.inputs.policyB || 'dadslayer' }}
         run: node scripts/run_tournament.js
 
