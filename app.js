@@ -1418,4 +1418,42 @@ elements.toggleRulesBtn.addEventListener("click", () => {
   elements.rulesPanel.hidden = !elements.rulesPanel.hidden;
 });
 
+// JSON bridge for remote/CLI-style control while keeping GUI intact.
+window.GoFishJsonBridge = {
+  getState() {
+    const active = getActivePlayer();
+    return {
+      phase: state.phase,
+      currentPlayer: state.currentPlayer,
+      currentPlayerName: active ? active.name : null,
+      deckCount: state.deck.length,
+      players: state.players.map((p) => ({
+        name: p.name,
+        handCount: p.hand.length,
+        books: [...p.books],
+        handCounts: getCounts(p.hand),
+      })),
+      legalActions:
+        state.phase === "play"
+          ? RANKS.filter((r) => getCounts(getActivePlayer().hand)[r] > 0).map((rank) => ({ type: "ask_rank", rank }))
+          : [],
+      winner: state.winner,
+      logTail: state.log.slice(-10),
+    };
+  },
+  submit(action) {
+    if (!action || action.type !== "ask_rank") {
+      return { ok: false, error: "invalid-action" };
+    }
+    const before = state.currentPlayer;
+    handleAsk(action.rank);
+    return {
+      ok: true,
+      currentPlayerBefore: before,
+      currentPlayerAfter: state.currentPlayer,
+      state: this.getState(),
+    };
+  },
+};
+
 newGame();
