@@ -38,7 +38,7 @@ jobs:
 
       - name: Run tournament
         env:
-          GAMES: ${{ github.event.inputs.games || '1000' }}
+          GAMES: ${{ github.event.inputs.games || '3' }}
           POLICY_A: ${{ github.event.inputs.policyA || 'otherai' }}
           POLICY_B: ${{ github.event.inputs.policyB || 'dadslayer' }}
         run: node scripts/run_tournament.js
