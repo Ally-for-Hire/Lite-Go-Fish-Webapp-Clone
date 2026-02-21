@@ -1,6 +1,9 @@
 # Lite-Go-Fish-Webapp-Clone
 
-Simple hot-seat Go Fish web app for two players on one computer.
+Simple hot-seat Go Fish web app with:
+- Human vs AI play
+- AI tournament mode with live winrate visualization
+- CLI/JSON simulation runner for fair seat-swapped benchmarking
 
 ## Run
 
@@ -28,24 +31,60 @@ Example commands (one JSON object per line):
 {"cmd":"legal"}
 {"cmd":"step","action":{"type":"ask_rank","rank":"7"}}
 {"cmd":"state"}
-{"cmd":"batch","games":1000,"policyA":"dadslayer","policyB":"otherai"}
-{"cmd":"batch_fair","games":1000,"policyA":"dadslayer","policyB":"random"}
+{"cmd":"batch","games":1000,"policyA":"dadslayer-v2","policyB":"clawbuddy-v2"}
+{"cmd":"batch_fair","games":1000,"policyA":"dadslayer-v2","policyB":"clawbuddy-v2"}
 ```
 
 `batch_fair` runs both seat orders (A as P1, then B as P1) and reports combined fair winrates.
 
-Policy files in active use:
-- `policies/random.js`
-- `policies/dadslayer.js`
-- `policies/otherai.js` (external player policy)
+Built-in policy IDs currently available:
+- `random`
+- `dadslayer-v1`
+- `dadslayer-v2`
+- `clawbuddy-v1`
+- `clawbuddy-v2`
+
+Legacy aliases accepted by CLI:
+- `dadslayer` (maps to v1 naming path)
+- `dad-slayer`
+- `clawbuddyv1` / `clawbuddyv2`
+- `otherai` (maps to clawbuddy v1 compatibility alias)
 
 Policy format/spec:
 - `policies/EXTERNAL_POLICY_FORMAT.md`
+- `policies/AI_POLICY_INVITATION.md`
 
 Browser bridge (while GUI remains active):
 
 - `window.GoFishJsonBridge.getState()`
 - `window.GoFishJsonBridge.submit({ type: "ask_rank", rank: "7" })`
+
+## Add a New Policy (Drop-in)
+
+1. Create a file in `policies/`, for example `policies/mybot.js`.
+2. Export and register it:
+
+```js
+function pickMove(state, legalActions, playerIndex) {
+  if (!Array.isArray(legalActions) || legalActions.length === 0) return null;
+  return legalActions[0];
+}
+
+(function (root) {
+  var api = { pickMove: pickMove };
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  root.GoFishPolicies = root.GoFishPolicies || {};
+  root.GoFishPolicies['mybot'] = api;
+})(typeof self !== 'undefined' ? self : this);
+```
+
+3. Add script include in `index.html` before `app.js`:
+
+```html
+<script src="policies/mybot.js"></script>
+```
+
+4. Refresh browser. `mybot` will appear in GUI dropdown automatically.
 
 ## Rules
 
