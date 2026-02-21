@@ -44,6 +44,7 @@ const elements = {
   newGameBtn: document.getElementById("newGameBtn"),
   opponentAiBtn: document.getElementById("opponentAiBtn"),
   opponentHumanBtn: document.getElementById("opponentHumanBtn"),
+  aiDifficultySelect: document.getElementById("aiDifficultySelect"),
   player1Name: document.getElementById("player1Name"),
   player2Name: document.getElementById("player2Name"),
   players: [
@@ -164,6 +165,11 @@ function updatePlayerNames() {
   elements.opponentAiBtn.setAttribute("aria-pressed", aiActive ? "true" : "false");
   elements.opponentHumanBtn.classList.toggle("active", !aiActive);
   elements.opponentHumanBtn.setAttribute("aria-pressed", !aiActive ? "true" : "false");
+
+  if (elements.aiDifficultySelect) {
+    elements.aiDifficultySelect.value = state.ai.difficulty || "normal";
+    elements.aiDifficultySelect.disabled = !aiActive;
+  }
 }
 
 function createPlayers() {
@@ -846,7 +852,8 @@ function renderAskButtons() {
 function renderStatus() {
   if (state.phase === "play") {
     if (isAiPlayer(state.currentPlayer)) {
-      elements.statusText.textContent = "AI is thinking.";
+      const mode = (state.ai.difficulty || "normal").replace(/-/g, " ");
+      elements.statusText.textContent = `AI (${mode}) is thinking.`;
       return;
     }
     const player = getActivePlayer();
@@ -966,6 +973,17 @@ elements.opponentHumanBtn.addEventListener("click", () => {
   state.settings.aiEnabled = false;
   newGame();
 });
+
+if (elements.aiDifficultySelect) {
+  elements.aiDifficultySelect.addEventListener("change", () => {
+    state.ai.difficulty = elements.aiDifficultySelect.value || "normal";
+    if (state.settings.aiEnabled) {
+      newGame();
+    } else {
+      render();
+    }
+  });
+}
 
 elements.toggleRulesBtn.addEventListener("click", () => {
   elements.rulesPanel.hidden = !elements.rulesPanel.hidden;

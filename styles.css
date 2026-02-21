@@ -166,6 +166,31 @@ p {
   border: 1px solid var(--stroke);
 }
 
+.difficulty-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--stroke);
+}
+
+.difficulty-select {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(8, 25, 21, 0.85);
+  color: var(--text);
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  outline: none;
+}
+
+.difficulty-select:disabled {
+  opacity: 0.5;
+}
+
 .toggle-label {
   text-transform: uppercase;
   letter-spacing: 0.18em;
