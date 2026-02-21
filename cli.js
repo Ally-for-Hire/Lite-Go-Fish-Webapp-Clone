@@ -8,21 +8,17 @@ function out(payload) {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
 
-function randomPolicy(s) {
-  const legal = Engine.legalMoves(s);
-  if (!legal.length) return null;
-  return legal[Math.floor(Math.random() * legal.length)];
-}
-
-function runBatch(games = 1000) {
-  const stats = { games, p1: 0, p2: 0, tie: 0, avgTurns: 0 };
+function runBatch(games = 1000, policyA = "dad-slayer", policyB = "baseline") {
+  const stats = { games, policyA, policyB, p1: 0, p2: 0, tie: 0, avgTurns: 0 };
   let turnsTotal = 0;
 
   for (let i = 0; i < games; i += 1) {
     let s = Engine.initGame({ seed: Date.now() + i });
     let turns = 0;
     while (s.phase === "play" && turns < 10000) {
-      const move = randomPolicy(s);
+      const current = s.currentPlayer;
+      const policy = current === 0 ? policyA : policyB;
+      const move = Engine.pickMove(s, policy, current);
       if (!move) break;
       const res = Engine.applyAction(s, move);
       s = res.state;
@@ -82,7 +78,9 @@ rl.on("line", (line) => {
 
   if (cmd === "batch") {
     const games = Number(msg.games || 1000);
-    out({ ok: true, stats: runBatch(games) });
+    const policyA = String(msg.policyA || "dad-slayer");
+    const policyB = String(msg.policyB || "baseline");
+    out({ ok: true, stats: runBatch(games, policyA, policyB) });
     return;
   }
 

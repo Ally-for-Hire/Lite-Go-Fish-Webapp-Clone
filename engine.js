@@ -95,6 +95,93 @@
     return RANKS.filter((r) => c[r] > 0).map((rank) => ({ type: "ask_rank", rank }));
   }
 
+  function estimateOpponentProbability(state, askingPlayerIndex, rank) {
+    const ai = state.players[askingPlayerIndex];
+    const opp = state.players[(askingPlayerIndex + 1) % 2];
+
+    if (ai.books.includes(rank) || opp.books.includes(rank)) {
+      return { probHas: 0, expectedCount: 0 };
+    }
+
+    const myCount = ai.hand.reduce((n, c) => n + (c.rank === rank ? 1 : 0), 0);
+    const unknownCopies = Math.max(0, 4 - myCount);
+    const unknownCards = Math.max(1, state.deck.length + opp.hand.length);
+
+    const draws = Math.min(opp.hand.length, unknownCards);
+    let probNone = 1;
+    for (let i = 0; i < draws; i += 1) {
+      const withoutRank = unknownCards - unknownCopies - i;
+      const remaining = unknownCards - i;
+      if (remaining <= 0) break;
+      probNone *= Math.max(0, withoutRank / remaining);
+    }
+
+    const probHas = Math.max(0, 1 - probNone);
+    const expectedCount = Math.max(0, (unknownCopies * draws) / unknownCards);
+    return { probHas, expectedCount };
+  }
+
+  function pickMove(state, policy = "random", playerIndex = state.currentPlayer) {
+    const legal = legalMoves(state);
+    if (!legal.length) return null;
+
+    if (policy === "random") {
+      return legal[Math.floor(Math.random() * legal.length)];
+    }
+
+    const me = state.players[playerIndex];
+    const c = counts(me.hand);
+
+    // Baseline: maximize immediate completion chance.
+    if (policy === "baseline") {
+      let best = legal[0];
+      let bestScore = -Infinity;
+      for (const move of legal) {
+        const own = c[move.rank] || 0;
+        const p = estimateOpponentProbability(state, playerIndex, move.rank);
+        const score = own * 1.0 + p.probHas * 0.9 + p.expectedCount * 0.4 + (own >= 3 ? 1.2 : 0);
+        if (score > bestScore) {
+          bestScore = score;
+          best = move;
+        }
+      }
+      return best;
+    }
+
+    // Dad-Slayer (headless policy approximation): book pressure + deny pressure + info gain.
+    if (policy === "dad-slayer") {
+      let best = legal[0];
+      let bestScore = -Infinity;
+
+      for (const move of legal) {
+        const rank = move.rank;
+        const own = c[rank] || 0;
+        const p = estimateOpponentProbability(state, playerIndex, rank);
+        const nearBook = own >= 3 ? 1.0 : own === 2 ? 0.45 : 0;
+        const deny = p.probHas * Math.min(1, own / 3);
+        const deckPressure = 1 - Math.min(1, state.deck.length / 52);
+        const endgameBoost = deckPressure * (nearBook + deny);
+
+        const score =
+          own * 0.45 +
+          p.probHas * 1.15 +
+          p.expectedCount * 0.65 +
+          nearBook * 0.9 +
+          deny * 0.7 +
+          endgameBoost * 0.5;
+
+        if (score > bestScore) {
+          bestScore = score;
+          best = move;
+        }
+      }
+
+      return best;
+    }
+
+    return legal[0];
+  }
+
   function summarize(state) {
     const active = state.players[state.currentPlayer];
     return {
@@ -201,5 +288,5 @@
     return state.winner;
   }
 
-  return { RANKS, initGame, legalMoves, applyAction, summarize, finalizeWinner };
+  return { RANKS, initGame, legalMoves, applyAction, summarize, finalizeWinner, pickMove };
 });

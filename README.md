@@ -28,8 +28,13 @@ Example commands (one JSON object per line):
 {"cmd":"legal"}
 {"cmd":"step","action":{"type":"ask_rank","rank":"7"}}
 {"cmd":"state"}
-{"cmd":"batch","games":1000}
+{"cmd":"batch","games":1000,"policyA":"dad-slayer","policyB":"baseline"}
 ```
+
+Batch policies currently available:
+- `random`
+- `baseline`
+- `dad-slayer`
 
 Browser bridge (while GUI remains active):
 
