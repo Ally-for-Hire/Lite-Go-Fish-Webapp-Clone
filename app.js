@@ -704,10 +704,16 @@ async function runTournamentFromGui() {
     let s = window.GoFishEngine.initGame({ seed: Date.now() + i });
     let turns = 0;
 
+    // Fair seat swap: policyA starts on even games, policyB starts on odd games.
+    const aIsP1 = i % 2 === 0;
+
     while (s.phase === "play" && turns < 10000) {
       const legal = window.GoFishEngine.legalMoves(s);
       if (!legal.length) break;
-      const p = s.currentPlayer === 0 ? policyA : policyB;
+
+      const isP1Turn = s.currentPlayer === 0;
+      const p = (aIsP1 ? isP1Turn : !isP1Turn) ? policyA : policyB;
+
       const picked = p(s, legal, s.currentPlayer) || legal[0];
       const move = legal.some((m) => m.type === picked.type && m.rank === picked.rank) ? picked : legal[0];
       const res = window.GoFishEngine.applyAction(s, move);
@@ -717,9 +723,15 @@ async function runTournamentFromGui() {
 
     window.GoFishEngine.finalizeWinner(s);
     turnsTotal += turns;
-    if (s.winner === "Tie") ties += 1;
-    else if (s.winner === s.players[0].name) aWins += 1;
-    else bWins += 1;
+
+    if (s.winner === "Tie") {
+      ties += 1;
+    } else {
+      const p1Won = s.winner === s.players[0].name;
+      const aWon = aIsP1 ? p1Won : !p1Won;
+      if (aWon) aWins += 1;
+      else bWins += 1;
+    }
 
     if ((i + 1) % 5 === 0 || i === games - 1) {
       updateTournamentBars(policyAName, policyBName, aWins, bWins, i + 1);
