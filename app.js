@@ -88,6 +88,7 @@ function initAiInference() {
   return {
     likelyOpponentHas: createRankMap(0),
     confidence: createRankMap(0),
+    particles: [],
   };
 }
 
@@ -586,6 +587,196 @@ function lookaheadValue(rank, ownCount, adjustedProb, expectedTake, deckPressure
   return hitBookChance * 0.55 + bonusTurnValue * 0.35 - (1 - adjustedProb) * missPenalty * 0.3;
 }
 
+function createZeroCounts() {
+  const counts = {};
+  for (const rank of RANKS) {
+    counts[rank] = 0;
+  }
+  return counts;
+}
+
+function normalizeParticles(aiIndex, aiCounts, opponentHandSize) {
+  const inf = state.ai.inference || initAiInference();
+  const particles = [];
+  const sampleCount = state.ai.difficulty === "dad-slayer" ? 220 : 120;
+
+  for (let i = 0; i < sampleCount; i += 1) {
+    const opp = createZeroCounts();
+    let remaining = opponentHandSize;
+
+    for (const rank of RANKS) {
+      const aiPlayer = state.players[aiIndex];
+      const oppPlayer = state.players[getOpponentIndex(aiIndex)];
+      if (aiPlayer.books.includes(rank) || oppPlayer.books.includes(rank)) {
+        continue;
+      }
+
+      const maxCopies = Math.max(0, 4 - aiCounts[rank]);
+      const likely = clamp((inf.likelyOpponentHas[rank] || 0) + 0.15, 0, 1);
+      const conf = clamp(inf.confidence[rank] || 0, 0, 1);
+      const target = Math.round(maxCopies * likely * (0.35 + conf * 0.65));
+      const noise = Math.floor(Math.random() * 2);
+      const value = clamp(target + noise - 1, 0, Math.min(maxCopies, remaining));
+      opp[rank] = value;
+      remaining -= value;
+    }
+
+    while (remaining > 0) {
+      const candidates = RANKS.filter((rank) => {
+        const aiPlayer = state.players[aiIndex];
+        const oppPlayer = state.players[getOpponentIndex(aiIndex)];
+        if (aiPlayer.books.includes(rank) || oppPlayer.books.includes(rank)) {
+          return false;
+        }
+        return opp[rank] < Math.max(0, 4 - aiCounts[rank]);
+      });
+      if (candidates.length === 0) {
+        break;
+      }
+      const pick = candidates[Math.floor(Math.random() * candidates.length)];
+      opp[pick] += 1;
+      remaining -= 1;
+    }
+
+    particles.push(opp);
+  }
+
+  inf.particles = particles;
+  state.ai.inference = inf;
+}
+
+function particleEstimate(rank) {
+  const inf = state.ai.inference;
+  if (!inf || !Array.isArray(inf.particles) || inf.particles.length === 0) {
+    return { probHas: 0, expectedCount: 0 };
+  }
+
+  let has = 0;
+  let total = 0;
+  for (const particle of inf.particles) {
+    const value = particle[rank] || 0;
+    if (value > 0) {
+      has += 1;
+    }
+    total += value;
+  }
+
+  return {
+    probHas: has / inf.particles.length,
+    expectedCount: total / inf.particles.length,
+  };
+}
+
+function applyBooksOnCounts(counts) {
+  let books = 0;
+  for (const rank of RANKS) {
+    if (counts[rank] >= 4) {
+      books += 1;
+      counts[rank] = 0;
+    }
+  }
+  return books;
+}
+
+function cloneCounts(counts) {
+  return { ...counts };
+}
+
+function evaluateAbstractState(s) {
+  const aiCards = RANKS.reduce((sum, r) => sum + s.aiCounts[r], 0);
+  const opCards = RANKS.reduce((sum, r) => sum + s.opCounts[r], 0);
+  return (s.aiBooks - s.opBooks) * 4 + (aiCards - opCards) * 0.15;
+}
+
+function minimaxEndgame(stateNode, actor, depth, alpha, beta) {
+  const aiTurn = actor === "ai";
+  if (depth <= 0 || stateNode.deck <= 0) {
+    return evaluateAbstractState(stateNode);
+  }
+
+  const actorCounts = aiTurn ? stateNode.aiCounts : stateNode.opCounts;
+  const oppCounts = aiTurn ? stateNode.opCounts : stateNode.aiCounts;
+  const choices = RANKS.filter((rank) => actorCounts[rank] > 0);
+  if (choices.length === 0) {
+    return evaluateAbstractState(stateNode);
+  }
+
+  let best = aiTurn ? -Infinity : Infinity;
+
+  for (const rank of choices) {
+    const next = {
+      aiCounts: cloneCounts(stateNode.aiCounts),
+      opCounts: cloneCounts(stateNode.opCounts),
+      aiBooks: stateNode.aiBooks,
+      opBooks: stateNode.opBooks,
+      deck: stateNode.deck,
+    };
+
+    const mine = aiTurn ? next.aiCounts : next.opCounts;
+    const theirs = aiTurn ? next.opCounts : next.aiCounts;
+    const taken = theirs[rank] || 0;
+
+    if (taken > 0) {
+      mine[rank] += taken;
+      theirs[rank] = 0;
+      if (aiTurn) {
+        next.aiBooks += applyBooksOnCounts(next.aiCounts);
+      } else {
+        next.opBooks += applyBooksOnCounts(next.opCounts);
+      }
+
+      const v = minimaxEndgame(next, actor, depth - 1, alpha, beta);
+      if (aiTurn) {
+        best = Math.max(best, v);
+        alpha = Math.max(alpha, best);
+      } else {
+        best = Math.min(best, v);
+        beta = Math.min(beta, best);
+      }
+    } else {
+      if (next.deck > 0) {
+        next.deck -= 1;
+      }
+      const v = minimaxEndgame(next, aiTurn ? "op" : "ai", depth - 1, alpha, beta);
+      if (aiTurn) {
+        best = Math.max(best, v);
+        alpha = Math.max(alpha, best);
+      } else {
+        best = Math.min(best, v);
+        beta = Math.min(beta, best);
+      }
+    }
+
+    if (beta <= alpha) {
+      break;
+    }
+  }
+
+  return best;
+}
+
+function endgameRankScore(rank, aiCounts, opCounts, deckSize) {
+  const root = {
+    aiCounts: cloneCounts(aiCounts),
+    opCounts: cloneCounts(opCounts),
+    aiBooks: state.players[state.ai.playerIndex].books.length,
+    opBooks: state.players[getOpponentIndex(state.ai.playerIndex)].books.length,
+    deck: deckSize,
+  };
+
+  if ((root.opCounts[rank] || 0) > 0) {
+    root.aiCounts[rank] += root.opCounts[rank];
+    root.opCounts[rank] = 0;
+    root.aiBooks += applyBooksOnCounts(root.aiCounts);
+    return minimaxEndgame(root, "ai", 3, -Infinity, Infinity);
+  }
+
+  if (root.deck > 0) {
+    root.deck -= 1;
+  }
+  return minimaxEndgame(root, "op", 3, -Infinity, Infinity);
+}
+
 function chooseAiRank() {
   const aiIndex = state.ai.playerIndex;
   const aiPlayer = state.players[aiIndex];
@@ -601,16 +792,22 @@ function chooseAiRank() {
   const style = getAiStyle(deckPressure, counts);
   const w = getDifficultyWeights();
 
+  normalizeParticles(aiIndex, counts, opponentHandSize);
+  const endgame = state.deck.length <= 10 || opponentHandSize <= 4;
+
   let bestRank = available[0];
   let bestScore = -Infinity;
 
   for (const rank of available) {
     const ownCount = counts[rank];
     const base = estimateOpponentProbability(rank, aiIndex, counts, opponentHandSize);
+    const particle = particleEstimate(rank);
+    const fusedProb = clamp(base.probHas * 0.5 + particle.probHas * 0.5, 0, 1);
+    const fusedExpected = Math.max(base.expectedCount * 0.45 + particle.expectedCount * 0.55, 0);
     const bias = memoryBias(rank) + inferenceBias(rank);
-    const adjustedProb = clamp(base.probHas + bias, 0, 1);
+    const adjustedProb = clamp(fusedProb + bias, 0, 1);
 
-    const expectedTake = adjustedProb * Math.max(1, base.expectedCount);
+    const expectedTake = adjustedProb * Math.max(1, fusedExpected);
     const completionNow = ownCount + expectedTake;
     const completionScore = clamp(completionNow / 4, 0, 1);
 
@@ -619,6 +816,15 @@ function chooseAiRank() {
     const infoScore = binaryEntropy(adjustedProb);
     const memoryScore = clamp(0.5 + bias, 0, 1);
     const lookaheadScore = lookaheadValue(rank, ownCount, adjustedProb, expectedTake, deckPressure);
+
+    let endgameScore = 0;
+    if (endgame) {
+      const opCounts = createZeroCounts();
+      for (const r of RANKS) {
+        opCounts[r] = Math.round(particleEstimate(r).expectedCount);
+      }
+      endgameScore = endgameRankScore(rank, counts, opCounts, state.deck.length);
+    }
 
     let styleCompletion = 1;
     let styleDeny = 1;
@@ -640,7 +846,8 @@ function chooseAiRank() {
       denyScore * w.deny * styleDeny +
       infoScore * w.info * styleInfo +
       memoryScore * w.memory +
-      lookaheadScore * w.lookahead;
+      lookaheadScore * w.lookahead +
+      (endgame ? endgameScore * 0.02 : 0);
 
     if (score > bestScore) {
       bestScore = score;
