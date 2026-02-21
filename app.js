@@ -4,7 +4,7 @@ const STARTING_HAND = 7;
 const REFILL_HAND = 5;
 const MAX_LOG = 12;
 const AI_THINK_DELAY = 700;
-const AI_DIFFICULTY = "dad-slayer";
+const AI_DIFFICULTY = "dadslayer";
 const CLAUDE_MOVE_TIMEOUT_MS = 900;
 
 const state = {
@@ -16,6 +16,7 @@ const state = {
   winner: null,
   settings: {
     aiEnabled: true,
+    mode: "human-vs-ai",
   },
   ai: {
     playerIndex: 1,
@@ -53,6 +54,21 @@ const elements = {
   opponentAiBtn: document.getElementById("opponentAiBtn"),
   opponentHumanBtn: document.getElementById("opponentHumanBtn"),
   aiDifficultySelect: document.getElementById("aiDifficultySelect"),
+  appModeSelect: document.getElementById("appModeSelect"),
+  tournamentPanel: document.getElementById("tournamentPanel"),
+  tableSection: document.getElementById("tableSection"),
+  tournamentPolicyA: document.getElementById("tournamentPolicyA"),
+  tournamentPolicyB: document.getElementById("tournamentPolicyB"),
+  tournamentGames: document.getElementById("tournamentGames"),
+  runTournamentBtn: document.getElementById("runTournamentBtn"),
+  tournamentStatus: document.getElementById("tournamentStatus"),
+  tournamentSummary: document.getElementById("tournamentSummary"),
+  barALabel: document.getElementById("barALabel"),
+  barBLabel: document.getElementById("barBLabel"),
+  barA: document.getElementById("barA"),
+  barB: document.getElementById("barB"),
+  barAText: document.getElementById("barAText"),
+  barBText: document.getElementById("barBText"),
   player1Name: document.getElementById("player1Name"),
   player2Name: document.getElementById("player2Name"),
   players: [
@@ -72,6 +88,62 @@ const elements = {
     },
   ],
 };
+
+function getPolicyNames() {
+  return Object.keys(window.GoFishPolicies || {});
+}
+
+function prettyPolicyName(name) {
+  if (!name) return "Unknown";
+  return name.replace(/[-_]/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function initPolicySelect() {
+  if (!elements.aiDifficultySelect) return;
+
+  const names = getPolicyNames();
+  elements.aiDifficultySelect.innerHTML = "";
+
+  for (const name of names) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = prettyPolicyName(name);
+    elements.aiDifficultySelect.appendChild(option);
+  }
+
+  if (!names.includes(state.ai.difficulty)) {
+    state.ai.difficulty = names.includes("dadslayer") ? "dadslayer" : names[0] || AI_DIFFICULTY;
+  }
+}
+
+function initTournamentSelectors() {
+  const names = getPolicyNames();
+  if (!elements.tournamentPolicyA || !elements.tournamentPolicyB) return;
+
+  elements.tournamentPolicyA.innerHTML = "";
+  elements.tournamentPolicyB.innerHTML = "";
+
+  for (const name of names) {
+    const a = document.createElement("option");
+    a.value = name;
+    a.textContent = prettyPolicyName(name);
+    elements.tournamentPolicyA.appendChild(a);
+
+    const b = document.createElement("option");
+    b.value = name;
+    b.textContent = prettyPolicyName(name);
+    elements.tournamentPolicyB.appendChild(b);
+  }
+
+  elements.tournamentPolicyA.value = names.includes("dadslayer") ? "dadslayer" : names[0] || "random";
+  elements.tournamentPolicyB.value = names.includes("otherai") ? "otherai" : names[0] || "random";
+}
+
+function applyModeUI() {
+  const isTournament = state.settings.mode === "ai-tournament";
+  if (elements.tournamentPanel) elements.tournamentPanel.hidden = !isTournament;
+  if (elements.tableSection) elements.tableSection.hidden = isTournament;
+}
 
 function createRankMap(value) {
   const map = {};
@@ -95,60 +167,6 @@ function initAiInference() {
     likelyOpponentHas: createRankMap(0),
     confidence: createRankMap(0),
     particles: [],
-  };
-}
-
-function getDifficultyWeights() {
-  const mode = state.ai.difficulty || "normal";
-  if (mode === "easy") {
-    return {
-      completion: 0.28,
-      nearBook: 0.08,
-      deny: 0.08,
-      info: 0.34,
-      memory: 0.1,
-      lookahead: 0.12,
-      monteCarlo: 0.06,
-      infoValue: 0.04,
-      temperature: 0.42,
-    };
-  }
-  if (mode === "hard") {
-    return {
-      completion: 0.34,
-      nearBook: 0.15,
-      deny: 0.14,
-      info: 0.1,
-      memory: 0.08,
-      lookahead: 0.12,
-      monteCarlo: 0.14,
-      infoValue: 0.07,
-      temperature: 0.2,
-    };
-  }
-  if (mode === "dad-slayer") {
-    return {
-      completion: 0.31,
-      nearBook: 0.17,
-      deny: 0.15,
-      info: 0.07,
-      memory: 0.07,
-      lookahead: 0.12,
-      monteCarlo: 0.2,
-      infoValue: 0.09,
-      temperature: 0.12,
-    };
-  }
-  return {
-    completion: 0.33,
-    nearBook: 0.14,
-    deny: 0.12,
-    info: 0.16,
-    memory: 0.1,
-    lookahead: 0.15,
-    monteCarlo: 0.1,
-    infoValue: 0.06,
-    temperature: 0.28,
   };
 }
 
@@ -187,16 +205,16 @@ function updatePlayerNames() {
   elements.opponentHumanBtn.classList.toggle("active", !aiActive);
   elements.opponentHumanBtn.setAttribute("aria-pressed", !aiActive ? "true" : "false");
 
-  const modeText = (state.ai.difficulty || "normal").replace(/-/g, " ");
+  const modeText = prettyPolicyName(state.ai.difficulty || AI_DIFFICULTY);
   if (elements.aiModeLabel) {
-    elements.aiModeLabel.textContent = modeText.replace(/\b\w/g, (m) => m.toUpperCase());
+    elements.aiModeLabel.textContent = modeText;
   }
   if (elements.aiModeStat) {
     elements.aiModeStat.hidden = !aiActive;
   }
 
   if (elements.aiDifficultySelect) {
-    elements.aiDifficultySelect.value = state.ai.difficulty || "normal";
+    elements.aiDifficultySelect.value = state.ai.difficulty || AI_DIFFICULTY;
     elements.aiDifficultySelect.disabled = !aiActive;
   }
 }
@@ -276,84 +294,6 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function binaryEntropy(probability) {
-  if (probability <= 0 || probability >= 1) {
-    return 0;
-  }
-  return -(probability * Math.log2(probability) + (1 - probability) * Math.log2(1 - probability));
-}
-
-function getRemainingCopies(rank, aiIndex, aiCounts) {
-  const aiPlayer = state.players[aiIndex];
-  const opponent = state.players[getOpponentIndex(aiIndex)];
-  if (aiPlayer.books.includes(rank) || opponent.books.includes(rank)) {
-    return 0;
-  }
-  return Math.max(0, 4 - aiCounts[rank]);
-}
-
-function estimateOpponentProbability(rank, aiIndex, aiCounts, opponentHandSize) {
-  const unknownCopies = getRemainingCopies(rank, aiIndex, aiCounts);
-  const totalUnknownCards = state.deck.length + opponentHandSize;
-  if (unknownCopies <= 0 || opponentHandSize <= 0 || totalUnknownCards <= 0) {
-    return {
-      probHas: 0,
-      expectedCount: 0,
-      unknownCopies,
-      totalUnknownCards,
-    };
-  }
-
-  const cappedCopies = Math.min(unknownCopies, totalUnknownCards);
-  let probNone = 1;
-  for (let i = 0; i < opponentHandSize; i += 1) {
-    const remaining = totalUnknownCards - i;
-    const withoutRank = totalUnknownCards - cappedCopies - i;
-    probNone *= clamp(withoutRank / remaining, 0, 1);
-  }
-  const probHas = clamp(1 - probNone, 0, 1);
-  const expectedCount = (cappedCopies * opponentHandSize) / totalUnknownCards;
-  return {
-    probHas,
-    expectedCount,
-    unknownCopies: cappedCopies,
-    totalUnknownCards,
-  };
-}
-
-function ageFrom(lastTick) {
-  if (lastTick === null) {
-    return null;
-  }
-  return Math.max(0, state.ai.tick - lastTick);
-}
-
-function decay(base, age, rate) {
-  return Math.max(0, base - age * rate);
-}
-
-function memoryBias(rank) {
-  const memory = state.ai.memory;
-  let bias = 0;
-  const askAge = ageFrom(memory.lastOpponentAsk[rank]);
-  if (askAge !== null) {
-    bias += decay(0.22, askAge, 0.04);
-  }
-  const successAge = ageFrom(memory.lastOpponentSuccess[rank]);
-  if (successAge !== null) {
-    bias += decay(0.32, successAge, 0.05);
-  }
-  const missAge = ageFrom(memory.lastAIGoFish[rank]);
-  if (missAge !== null) {
-    bias -= decay(0.28, missAge, 0.05);
-  }
-  const tookAge = ageFrom(memory.lastAITook[rank]);
-  if (tookAge !== null) {
-    bias -= decay(0.2, tookAge, 0.04);
-  }
-  return bias;
-}
-
 function updateInferenceForRank(rank, delta, confidenceDelta) {
   if (!state.ai.inference) {
     state.ai.inference = initAiInference();
@@ -361,16 +301,6 @@ function updateInferenceForRank(rank, delta, confidenceDelta) {
   const inf = state.ai.inference;
   inf.likelyOpponentHas[rank] = clamp((inf.likelyOpponentHas[rank] || 0) + delta, 0, 1);
   inf.confidence[rank] = clamp((inf.confidence[rank] || 0) + confidenceDelta, 0, 1);
-}
-
-function inferenceBias(rank) {
-  if (!state.ai.inference) {
-    return 0;
-  }
-  const inf = state.ai.inference;
-  const likely = inf.likelyOpponentHas[rank] || 0;
-  const conf = inf.confidence[rank] || 0;
-  return (likely - 0.5) * conf * 0.8;
 }
 
 function decayInference() {
@@ -559,156 +489,6 @@ function updateAiMemoryForAsk(askerIndex, rank, takenCount, tick) {
   }
 }
 
-function estimateOpponentPressure(rank) {
-  const memory = state.ai.memory;
-  let pressure = 0;
-
-  const askAge = ageFrom(memory.lastOpponentAsk[rank]);
-  if (askAge !== null) {
-    pressure += decay(0.35, askAge, 0.06);
-  }
-
-  const successAge = ageFrom(memory.lastOpponentSuccess[rank]);
-  if (successAge !== null) {
-    pressure += decay(0.45, successAge, 0.07);
-  }
-
-  pressure += Math.max(0, inferenceBias(rank));
-
-  return clamp(pressure, 0, 1);
-}
-
-function getAiStyle(deckPressure, aiCounts) {
-  let strongestPair = 0;
-  let nearBooks = 0;
-  for (const rank of RANKS) {
-    strongestPair = Math.max(strongestPair, aiCounts[rank]);
-    if (aiCounts[rank] >= 3) {
-      nearBooks += 1;
-    }
-  }
-
-  if (nearBooks > 0 || deckPressure < 0.25 || strongestPair >= 3) {
-    return "greedy";
-  }
-  if (deckPressure > 0.6) {
-    return "deny";
-  }
-  return "balanced";
-}
-
-function lookaheadValue(rank, ownCount, adjustedProb, expectedTake, deckPressure) {
-  const hitBookChance = clamp((ownCount + expectedTake) / 4, 0, 1);
-  const missPenalty = clamp(0.2 + deckPressure * 0.35, 0, 1);
-  const bonusTurnValue = adjustedProb * clamp(0.5 + ownCount * 0.12, 0, 1);
-
-  return hitBookChance * 0.55 + bonusTurnValue * 0.35 - (1 - adjustedProb) * missPenalty * 0.3;
-}
-
-function createZeroCounts() {
-  const counts = {};
-  for (const rank of RANKS) {
-    counts[rank] = 0;
-  }
-  return counts;
-}
-
-function knownUnavailableCounts(aiIndex) {
-  const result = createZeroCounts();
-  const aiPlayer = state.players[aiIndex];
-  const oppPlayer = state.players[getOpponentIndex(aiIndex)];
-
-  for (const card of aiPlayer.hand) {
-    result[card.rank] += 1;
-  }
-
-  for (const rank of aiPlayer.books) {
-    result[rank] = 4;
-  }
-  for (const rank of oppPlayer.books) {
-    result[rank] = 4;
-  }
-
-  return result;
-}
-
-function rankEntropyFromProbability(prob) {
-  return binaryEntropy(clamp(prob, 0, 1));
-}
-
-function normalizeParticles(aiIndex, aiCounts, opponentHandSize) {
-  const inf = state.ai.inference || initAiInference();
-  const particles = [];
-  const sampleCount = state.ai.difficulty === "dad-slayer" ? 300 : 140;
-  const knownUnavailable = knownUnavailableCounts(aiIndex);
-
-  for (let i = 0; i < sampleCount; i += 1) {
-    const opp = createZeroCounts();
-    let remaining = opponentHandSize;
-
-    for (const rank of RANKS) {
-      const aiPlayer = state.players[aiIndex];
-      const oppPlayer = state.players[getOpponentIndex(aiIndex)];
-      if (aiPlayer.books.includes(rank) || oppPlayer.books.includes(rank)) {
-        continue;
-      }
-
-      const maxCopies = Math.max(0, 4 - (knownUnavailable[rank] || 0));
-      const likely = clamp((inf.likelyOpponentHas[rank] || 0) + 0.15, 0, 1);
-      const conf = clamp(inf.confidence[rank] || 0, 0, 1);
-      const target = Math.round(maxCopies * likely * (0.35 + conf * 0.65));
-      const noise = Math.floor(Math.random() * 2);
-      const value = clamp(target + noise - 1, 0, Math.min(maxCopies, remaining));
-      opp[rank] = value;
-      remaining -= value;
-    }
-
-    while (remaining > 0) {
-      const candidates = RANKS.filter((rank) => {
-        const aiPlayer = state.players[aiIndex];
-        const oppPlayer = state.players[getOpponentIndex(aiIndex)];
-        if (aiPlayer.books.includes(rank) || oppPlayer.books.includes(rank)) {
-          return false;
-        }
-        return opp[rank] < Math.max(0, 4 - (knownUnavailable[rank] || 0));
-      });
-      if (candidates.length === 0) {
-        break;
-      }
-      const pick = candidates[Math.floor(Math.random() * candidates.length)];
-      opp[pick] += 1;
-      remaining -= 1;
-    }
-
-    particles.push(opp);
-  }
-
-  inf.particles = particles;
-  state.ai.inference = inf;
-}
-
-function particleEstimate(rank) {
-  const inf = state.ai.inference;
-  if (!inf || !Array.isArray(inf.particles) || inf.particles.length === 0) {
-    return { probHas: 0, expectedCount: 0 };
-  }
-
-  let has = 0;
-  let total = 0;
-  for (const particle of inf.particles) {
-    const value = particle[rank] || 0;
-    if (value > 0) {
-      has += 1;
-    }
-    total += value;
-  }
-
-  return {
-    probHas: has / inf.particles.length,
-    expectedCount: total / inf.particles.length,
-  };
-}
-
 function applyBooksOnCounts(counts) {
   let books = 0;
   for (const rank of RANKS) {
@@ -797,100 +577,6 @@ function minimaxEndgame(stateNode, actor, depth, alpha, beta) {
   return best;
 }
 
-function endgameRankScore(rank, aiCounts, opCounts, deckSize) {
-  const root = {
-    aiCounts: cloneCounts(aiCounts),
-    opCounts: cloneCounts(opCounts),
-    aiBooks: state.players[state.ai.playerIndex].books.length,
-    opBooks: state.players[getOpponentIndex(state.ai.playerIndex)].books.length,
-    deck: deckSize,
-  };
-
-  if ((root.opCounts[rank] || 0) > 0) {
-    root.aiCounts[rank] += root.opCounts[rank];
-    root.opCounts[rank] = 0;
-    root.aiBooks += applyBooksOnCounts(root.aiCounts);
-    return minimaxEndgame(root, "ai", 3, -Infinity, Infinity);
-  }
-
-  if (root.deck > 0) {
-    root.deck -= 1;
-  }
-  return minimaxEndgame(root, "op", 3, -Infinity, Infinity);
-}
-
-function monteCarloRankEV(rank, aiCounts, deckSize) {
-  const inf = state.ai.inference;
-  if (!inf || !Array.isArray(inf.particles) || inf.particles.length === 0) {
-    return 0;
-  }
-
-  const rollouts = state.ai.difficulty === "dad-slayer" ? 80 : 40;
-  let total = 0;
-
-  for (let i = 0; i < rollouts; i += 1) {
-    const particle = inf.particles[Math.floor(Math.random() * inf.particles.length)];
-    const opCounts = cloneCounts(particle);
-    const mine = cloneCounts(aiCounts);
-
-    const taken = opCounts[rank] || 0;
-    let score = 0;
-
-    if (taken > 0) {
-      mine[rank] += taken;
-      opCounts[rank] = 0;
-      const booksMade = applyBooksOnCounts(mine);
-      score += taken * 0.6 + booksMade * 2.4;
-    } else {
-      score -= 0.25;
-      if (deckSize > 0) {
-        score += 0.08;
-      }
-      const oppBest = Math.max(...RANKS.map((r) => opCounts[r] || 0));
-      score -= oppBest * 0.15;
-    }
-
-    total += score;
-  }
-
-  return total / rollouts;
-}
-
-function informationValueScore(rank, fusedProb) {
-  const priorEntropy = rankEntropyFromProbability(fusedProb);
-  const posteriorIfHit = rankEntropyFromProbability(0.95);
-  const posteriorIfMiss = rankEntropyFromProbability(0.05);
-  const expectedPosterior = fusedProb * posteriorIfHit + (1 - fusedProb) * posteriorIfMiss;
-  return Math.max(0, priorEntropy - expectedPosterior);
-}
-
-function softmaxPick(candidates, temperature) {
-  if (candidates.length === 0) {
-    return null;
-  }
-  if (candidates.length === 1 || temperature <= 0.0001) {
-    return candidates[0].rank;
-  }
-
-  const top = Math.max(...candidates.map((c) => c.score));
-  const scaled = candidates.map((c) => ({
-    rank: c.rank,
-    value: Math.exp((c.score - top) / temperature),
-  }));
-
-  const sum = scaled.reduce((s, x) => s + x.value, 0);
-  let roll = Math.random() * Math.max(sum, 0.0001);
-
-  for (const item of scaled) {
-    roll -= item.value;
-    if (roll <= 0) {
-      return item.rank;
-    }
-  }
-
-  return scaled[scaled.length - 1].rank;
-}
-
 function buildClaudeStateSnapshot(aiIndex) {
   const aiPlayer = state.players[aiIndex];
   const opponentIndex = getOpponentIndex(aiIndex);
@@ -958,105 +644,109 @@ async function getClaudeMove(aiIndex) {
 
 function chooseAiRank() {
   const aiIndex = state.ai.playerIndex;
+  const legalActions = [];
   const aiPlayer = state.players[aiIndex];
-  const counts = getCounts(aiPlayer.hand);
-  const available = RANKS.filter((rank) => counts[rank] > 0);
-  if (available.length === 0) {
-    return null;
+  const c = getCounts(aiPlayer.hand);
+  for (const rank of RANKS) {
+    if (c[rank] > 0) legalActions.push({ type: "ask_rank", rank });
   }
+  if (!legalActions.length) return null;
 
-  const opponentIndex = getOpponentIndex(aiIndex);
-  const opponentHandSize = state.players[opponentIndex].hand.length;
-  const deckPressure = clamp(state.deck.length / 52, 0, 1);
-  const style = getAiStyle(deckPressure, counts);
-  const w = getDifficultyWeights();
+  const policyName = (state.ai.difficulty || AI_DIFFICULTY).toLowerCase();
+  const policy = window.GoFishPolicies && window.GoFishPolicies[policyName];
 
-  normalizeParticles(aiIndex, counts, opponentHandSize);
-  const endgame = state.deck.length <= 10 || opponentHandSize <= 4;
-
-  let bestRank = available[0];
-  let bestScore = -Infinity;
-  const candidates = [];
-
-  for (const rank of available) {
-    const ownCount = counts[rank];
-    const base = estimateOpponentProbability(rank, aiIndex, counts, opponentHandSize);
-    const particle = particleEstimate(rank);
-    const fusedProb = clamp(base.probHas * 0.5 + particle.probHas * 0.5, 0, 1);
-    const fusedExpected = Math.max(base.expectedCount * 0.45 + particle.expectedCount * 0.55, 0);
-    const bias = memoryBias(rank) + inferenceBias(rank);
-    const adjustedProb = clamp(fusedProb + bias, 0, 1);
-
-    const expectedTake = adjustedProb * Math.max(1, fusedExpected);
-    const completionNow = ownCount + expectedTake;
-    const completionScore = clamp(completionNow / 4, 0, 1);
-
-    const nearBookBonus = ownCount >= 3 ? 1 : ownCount === 2 ? 0.45 : 0;
-    const denyScore = estimateOpponentPressure(rank) * clamp(ownCount / 3, 0, 1);
-    const infoScore = binaryEntropy(adjustedProb);
-    const memoryScore = clamp(0.5 + bias, 0, 1);
-    const lookaheadScore = lookaheadValue(rank, ownCount, adjustedProb, expectedTake, deckPressure);
-    const monteCarloScore = monteCarloRankEV(rank, counts, state.deck.length);
-    const infoValue = informationValueScore(rank, fusedProb);
-
-    let endgameScore = 0;
-    if (endgame) {
-      const opCounts = createZeroCounts();
-      for (const r of RANKS) {
-        opCounts[r] = Math.round(particleEstimate(r).expectedCount);
-      }
-      endgameScore = endgameRankScore(rank, counts, opCounts, state.deck.length);
-    }
-
-    let styleCompletion = 1;
-    let styleDeny = 1;
-    let styleInfo = 1;
-
-    if (style === "greedy") {
-      styleCompletion = 1.18;
-      styleDeny = 0.9;
-      styleInfo = 0.82;
-    } else if (style === "deny") {
-      styleCompletion = 0.92;
-      styleDeny = 1.22;
-      styleInfo = 1.05;
-    }
-
-    const score =
-      completionScore * w.completion * styleCompletion +
-      nearBookBonus * w.nearBook +
-      denyScore * w.deny * styleDeny +
-      infoScore * w.info * styleInfo +
-      memoryScore * w.memory +
-      lookaheadScore * w.lookahead +
-      monteCarloScore * w.monteCarlo +
-      infoValue * w.infoValue +
-      (endgame ? endgameScore * 0.02 : 0);
-
-    candidates.push({ rank, score });
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestRank = rank;
-      continue;
-    }
-
-    if (score === bestScore) {
-      if (ownCount > counts[bestRank]) {
-        bestRank = rank;
-        continue;
-      }
-      const denyA = estimateOpponentPressure(rank);
-      const denyB = estimateOpponentPressure(bestRank);
-      if (denyA > denyB) {
-        bestRank = rank;
-      }
+  if (policy && typeof policy.pickMove === "function") {
+    const action = policy.pickMove({ state, legalActions, playerIndex: aiIndex, RANKS, getCounts });
+    if (action && legalActions.some((m) => m.type === action.type && m.rank === action.rank)) {
+      return action.rank;
     }
   }
 
-  const nearOptimal = candidates.filter((c) => c.score >= bestScore - 0.08);
-  const picked = softmaxPick(nearOptimal, w.temperature);
-  return picked || bestRank;
+  return legalActions[0].rank;
+}
+
+function resolveTournamentPolicy(name) {
+  const policy = window.GoFishPolicies && window.GoFishPolicies[name];
+  if (!policy || typeof policy.pickMove !== "function") {
+    throw new Error(`Missing policy: ${name}`);
+  }
+  return policy.pickMove;
+}
+
+function updateTournamentBars(aName, bName, aWins, bWins, done) {
+  const total = Math.max(1, done);
+  const aPct = (aWins / total) * 100;
+  const bPct = (bWins / total) * 100;
+  if (elements.barALabel) elements.barALabel.textContent = prettyPolicyName(aName);
+  if (elements.barBLabel) elements.barBLabel.textContent = prettyPolicyName(bName);
+  if (elements.barA) elements.barA.style.width = `${aPct.toFixed(2)}%`;
+  if (elements.barB) elements.barB.style.width = `${bPct.toFixed(2)}%`;
+  if (elements.barAText) elements.barAText.textContent = `${aPct.toFixed(1)}% (${aWins})`;
+  if (elements.barBText) elements.barBText.textContent = `${bPct.toFixed(1)}% (${bWins})`;
+}
+
+async function runTournamentFromGui() {
+  const games = Math.max(1, Number(elements.tournamentGames?.value || 100));
+  const policyAName = elements.tournamentPolicyA?.value || "dadslayer";
+  const policyBName = elements.tournamentPolicyB?.value || "otherai";
+  const policyA = resolveTournamentPolicy(policyAName);
+  const policyB = resolveTournamentPolicy(policyBName);
+
+  let aWins = 0;
+  let bWins = 0;
+  let ties = 0;
+  let turnsTotal = 0;
+
+  if (elements.runTournamentBtn) elements.runTournamentBtn.disabled = true;
+  if (elements.tournamentStatus) elements.tournamentStatus.textContent = `Running ${games} games...`;
+
+  for (let i = 0; i < games; i += 1) {
+    let s = window.GoFishEngine.initGame({ seed: Date.now() + i });
+    let turns = 0;
+
+    // Fair seat swap: policyA starts on even games, policyB starts on odd games.
+    const aIsP1 = i % 2 === 0;
+
+    while (s.phase === "play" && turns < 10000) {
+      const legal = window.GoFishEngine.legalMoves(s);
+      if (!legal.length) break;
+
+      const isP1Turn = s.currentPlayer === 0;
+      const p = (aIsP1 ? isP1Turn : !isP1Turn) ? policyA : policyB;
+
+      const picked = p(s, legal, s.currentPlayer) || legal[0];
+      const move = legal.some((m) => m.type === picked.type && m.rank === picked.rank) ? picked : legal[0];
+      const res = window.GoFishEngine.applyAction(s, move);
+      s = res.state;
+      turns += 1;
+    }
+
+    window.GoFishEngine.finalizeWinner(s);
+    turnsTotal += turns;
+
+    if (s.winner === "Tie") {
+      ties += 1;
+    } else {
+      const p1Won = s.winner === s.players[0].name;
+      const aWon = aIsP1 ? p1Won : !p1Won;
+      if (aWon) aWins += 1;
+      else bWins += 1;
+    }
+
+    if ((i + 1) % 5 === 0 || i === games - 1) {
+      updateTournamentBars(policyAName, policyBName, aWins, bWins, i + 1);
+      if (elements.tournamentStatus) elements.tournamentStatus.textContent = `Running ${i + 1}/${games} games...`;
+      // Let browser paint progress.
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+
+  const avgTurns = (turnsTotal / games).toFixed(2);
+  if (elements.tournamentStatus) elements.tournamentStatus.textContent = `Done. ${games} games complete.`;
+  if (elements.tournamentSummary) {
+    elements.tournamentSummary.textContent = `${prettyPolicyName(policyAName)} wins: ${aWins}, ${prettyPolicyName(policyBName)} wins: ${bWins}, ties: ${ties}, avg turns: ${avgTurns}.`;
+  }
+  if (elements.runTournamentBtn) elements.runTournamentBtn.disabled = false;
 }
 
 async function aiTakeTurn() {
@@ -1103,6 +793,9 @@ async function aiTakeTurn() {
 // - legalActions[]
 
 function scheduleAiAction() {
+  if (state.settings.mode === "ai-tournament") {
+    return;
+  }
   if (!isAiEnabled() || state.phase === "gameover" || !isAiPlayer(state.currentPlayer)) {
     return;
   }
@@ -1281,7 +974,7 @@ function renderAskButtons() {
 function renderStatus() {
   if (state.phase === "play") {
     if (isAiPlayer(state.currentPlayer)) {
-      const mode = (state.ai.difficulty || "normal").replace(/-/g, " ");
+      const mode = prettyPolicyName(state.ai.difficulty || AI_DIFFICULTY);
       elements.statusText.textContent = `AI (${mode}) is thinking.`;
       return;
     }
@@ -1354,6 +1047,7 @@ function renderOverlay() {
 }
 
 function render() {
+  applyModeUI();
   const player = getActivePlayer();
   elements.deckCount.textContent = state.deck.length;
   elements.turnLabel.textContent = state.phase === "gameover" ? "Game over" : player.name;
@@ -1405,7 +1099,7 @@ elements.opponentHumanBtn.addEventListener("click", () => {
 
 if (elements.aiDifficultySelect) {
   elements.aiDifficultySelect.addEventListener("change", () => {
-    state.ai.difficulty = elements.aiDifficultySelect.value || "normal";
+    state.ai.difficulty = elements.aiDifficultySelect.value || AI_DIFFICULTY;
     if (state.settings.aiEnabled) {
       newGame();
     } else {
@@ -1417,6 +1111,20 @@ if (elements.aiDifficultySelect) {
 elements.toggleRulesBtn.addEventListener("click", () => {
   elements.rulesPanel.hidden = !elements.rulesPanel.hidden;
 });
+
+if (elements.appModeSelect) {
+  elements.appModeSelect.addEventListener("change", () => {
+    state.settings.mode = elements.appModeSelect.value || "human-vs-ai";
+    applyModeUI();
+    render();
+  });
+}
+
+if (elements.runTournamentBtn) {
+  elements.runTournamentBtn.addEventListener("click", () => {
+    void runTournamentFromGui();
+  });
+}
 
 // JSON bridge for remote/CLI-style control while keeping GUI intact.
 window.GoFishJsonBridge = {
@@ -1456,4 +1164,10 @@ window.GoFishJsonBridge = {
   },
 };
 
+initPolicySelect();
+initTournamentSelectors();
+if (elements.appModeSelect) {
+  elements.appModeSelect.value = state.settings.mode;
+}
+applyModeUI();
 newGame();
