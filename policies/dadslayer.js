@@ -39,21 +39,30 @@
     if (!Array.isArray(legalActions) || legalActions.length === 0) return null;
 
     const me = state.players[playerIndex];
-    const counts = countHand(me.hand);
-    const deckPressure = 1 - Math.min(1, (state.deck || []).length / 52);
+    const opp = state.players[(playerIndex + 1) % 2];
+    const myCounts = countHand(me.hand);
+    const oppCounts = countHand(opp.hand);
 
     let best = legalActions[0];
     let bestScore = -Infinity;
 
     for (const move of legalActions) {
       const rank = move.rank;
-      const own = counts[rank] || 0;
-      const p = estimateOpponentProbability(state, playerIndex, rank);
-      const nearBook = own >= 3 ? 1.0 : own === 2 ? 0.45 : 0;
-      const deny = p.probHas * Math.min(1, own / 3);
-      const endgameBoost = deckPressure * (nearBook + deny);
+      const own = myCounts[rank] || 0;
+      const oppHas = oppCounts[rank] || 0;
 
-      const score = own * 0.45 + p.probHas * 1.15 + p.expectedCount * 0.65 + nearBook * 0.9 + deny * 0.7 + endgameBoost * 0.5;
+      // In current engine policy API, full state is visible.
+      // Maximize immediate capture from opponent, then maximize book conversion.
+      const immediateTake = oppHas;
+      const postTake = own + oppHas;
+      const completesBook = postTake >= 4 ? 1 : 0;
+      const nearBook = postTake === 3 ? 1 : postTake === 2 ? 0.4 : 0;
+
+      const score =
+        immediateTake * 10 +
+        completesBook * 6 +
+        nearBook * 2 +
+        own * 0.5;
 
       if (score > bestScore) {
         bestScore = score;
