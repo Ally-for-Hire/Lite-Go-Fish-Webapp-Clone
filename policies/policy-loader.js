@@ -1,10 +1,8 @@
 (function (root) {
   async function loadPolicyScripts() {
     try {
-      const res = await fetch("policies/manifest.json", { cache: "no-store" });
-      if (!res.ok) throw new Error(`manifest load failed: ${res.status}`);
-      const files = await res.json();
-      if (!Array.isArray(files)) throw new Error("manifest must be an array of filenames");
+      const files = Array.isArray(root.GoFishPolicyManifest) ? root.GoFishPolicyManifest : [];
+      if (!files.length) throw new Error("GoFishPolicyManifest is empty or missing");
 
       for (const file of files) {
         if (typeof file !== "string" || !file.endsWith(".js")) continue;
