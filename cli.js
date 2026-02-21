@@ -41,6 +41,10 @@ function loadAllPolicies() {
       out["clawbuddy-v2"] = fn;
       out.clawbuddyv2 = fn;
     }
+    if (key === "dadslayerv2" || key === "dadslayer-v2") {
+      out["dadslayer-v2"] = fn;
+      out.dadslayerv2 = fn;
+    }
   }
 
   return out;
