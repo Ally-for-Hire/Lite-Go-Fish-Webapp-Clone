@@ -37,6 +37,10 @@ function loadAllPolicies() {
       out.clawbuddyv1 = fn;
       out.otherai = fn;
     }
+    if (key === "clawbuddyv2" || key === "clawbuddy-v2") {
+      out["clawbuddy-v2"] = fn;
+      out.clawbuddyv2 = fn;
+    }
   }
 
   return out;
