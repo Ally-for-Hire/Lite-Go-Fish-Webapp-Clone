@@ -1,140 +1,5 @@
 // Jason's Go Fish AI — "ClawBuddy"
-// Adapted for this engine's state + log format.
-
-var ALL_RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
-var RANK_INDEX = {};
-for (var i = 0; i < ALL_RANKS.length; i++) RANK_INDEX[ALL_RANKS[i]] = i;
-
-var TUNING = {
-  bookBonus1: 0,
-  bookBonus2: 8,
-  bookBonus3: 40,
-  turnValue: 2,
-  missPenalty: 1,
-  oppAskBonus: 1.4,
-  missRankPenalty: 0.6,
-  dominanceGap: 0.12
-};
-
-function rankCounts(hand) {
-  var out = {};
-  for (var i = 0; i < ALL_RANKS.length; i++) out[ALL_RANKS[i]] = 0;
-  for (var j = 0; j < (hand || []).length; j++) {
-    var card = hand[j];
-    if (card && out[card.rank] !== undefined) out[card.rank] += 1;
-  }
-  return out;
-}
-
-function parseEvidence(log, meName, oppName) {
-  var oppAskedRanks = {};
-  var missRanks = {};
-  var bookRanks = {};
-  var lastAsk = null;
-
-  var askRe = /^(.+?) asks for (A|10|[2-9JQK])\.$/;
-  var giveRe = /^(.+?) gives (\d+) card\(s\)\.$/;
-  var fishRe = /^(.+?) says go fish\.$/;
-  var bookRe = /^(.+?) books (.+)\.$/;
-
-  for (var i = 0; i < (log || []).length; i++) {
-    var line = log[i];
-    if (typeof line !== 'string') continue;
-
-    var m = line.match(askRe);
-    if (m) {
-      lastAsk = { asker: m[1], rank: m[2] };
-      if (m[1] === oppName) oppAskedRanks[m[2]] = true;
-      continue;
-    }
-
-    m = line.match(giveRe);
-    if (m && lastAsk) {
-      var giver = m[1];
-      if (lastAsk.asker === meName && giver === oppName) {
-        // Fresh direct evidence opponent does have/had this rank now.
-        delete missRanks[lastAsk.rank];
-      }
-      continue;
-    }
-
-    m = line.match(fishRe);
-    if (m && lastAsk) {
-      var speaker = m[1];
-      if (lastAsk.asker === meName && speaker === oppName) {
-        // We asked this rank and were denied.
-        missRanks[lastAsk.rank] = true;
-      }
-      continue;
-    }
-
-    m = line.match(bookRe);
-    if (m) {
-      var ranks = String(m[2]).split(',');
-      for (var j = 0; j < ranks.length; j++) {
-        var r = ranks[j].trim();
-        if (r) {
-          bookRanks[r] = true;
-          delete oppAskedRanks[r];
-          delete missRanks[r];
-        }
-      }
-    }
-  }
-
-  return { oppAskedRanks: oppAskedRanks, missRanks: missRanks, bookRanks: bookRanks };
-}
-
-function getBookBonus(myCount) {
-  if (myCount >= 3) return TUNING.bookBonus3;
-  if (myCount === 2) return TUNING.bookBonus2;
-  if (myCount === 1) return TUNING.bookBonus1;
-  return 0;
-}
-
-function hasVisibleOppHand(oppHand) {
-  if (!Array.isArray(oppHand)) return false;
-  if (oppHand.length === 0) return true;
-  return !!(oppHand[0] && typeof oppHand[0].rank === 'string');
-}
-
-function hypergeometricAtLeast1(totalUnknown, successCards, draws) {
-  if (successCards <= 0 || draws <= 0 || totalUnknown <= 0) return 0;
-  if (successCards >= totalUnknown) return 1;
-  if (draws > totalUnknown - successCards) return 1;
-
-  var pZero = 1;
-  var maxDraws = Math.min(draws, totalUnknown);
-  for (var i = 0; i < maxDraws; i++) {
-    var num = totalUnknown - successCards - i;
-    var den = totalUnknown - i;
-    if (num <= 0) return 1;
-    pZero *= num / den;
-  }
-  return 1 - pZero;
-}
-
-function estimateChance(rank, myCount, oppHandSize, deckSize, booked, missRank, oppVisibleCount) {
-  if (booked) return { p: 0, expectedCards: 0, rawP: 0 };
-
-  if (typeof oppVisibleCount === 'number') {
-    return {
-      p: oppVisibleCount > 0 ? 1 : 0,
-      expectedCards: Math.max(0, oppVisibleCount),
-      rawP: oppVisibleCount > 0 ? 1 : 0
-    };
-  }
-
-  var remaining = Math.max(0, 4 - myCount);
-  var totalUnknown = Math.max(1, deckSize + oppHandSize);
-  var rawP = hypergeometricAtLeast1(totalUnknown, remaining, oppHandSize);
-  var p = rawP;
-  if (p > 0.01 && p < 0.99) p *= 0.85;
-  if (missRank) p *= 0.5;
-  var expectedCards = p * Math.max(1, remaining * (oppHandSize / Math.max(1, totalUnknown)));
-
-  return { p: p, expectedCards: expectedCards, rawP: rawP };
-}
+// Fixed: track go-fish denials to avoid hammering the same rank
 
 function pickMove(state, legalActions, playerIndex) {
   if (!Array.isArray(legalActions) || legalActions.length === 0) return null;
@@ -143,86 +8,132 @@ function pickMove(state, legalActions, playerIndex) {
   var me = state.players[playerIndex];
   var oppIndex = (playerIndex + 1) % 2;
   var opp = state.players[oppIndex];
-  var myCounts = rankCounts(me.hand || []);
-  var oppCounts = rankCounts(opp.hand || []);
-  var useVisibleOppHand = hasVisibleOppHand(opp.hand);
+  var myHand = me.hand || [];
   var oppHandSize = (opp.hand || []).length;
   var deckSize = (state.deck || []).length;
+  var myBooks = me.books || [];
+  var oppBooks = opp.books || [];
+  var log = state.log || [];
 
-  var evidence = parseEvidence(state.log || [], me.name, opp.name);
-  var allBooked = {};
-  for (var i = 0; i < (me.books || []).length; i++) allBooked[me.books[i]] = true;
-  for (var j = 0; j < (opp.books || []).length; j++) allBooked[opp.books[j]] = true;
-  for (var k = 0; k < ALL_RANKS.length; k++) {
-    var rank = ALL_RANKS[k];
-    if (evidence.bookRanks[rank]) allBooked[rank] = true;
+  // Count our ranks
+  var myCounts = {};
+  for (var i = 0; i < myHand.length; i++) {
+    var r = myHand[i].rank;
+    myCounts[r] = (myCounts[r] || 0) + 1;
   }
 
-  var scored = [];
-  var highestProb = null;
+  // Booked ranks
+  var booked = {};
+  for (var i = 0; i < myBooks.length; i++) booked[myBooks[i]] = true;
+  for (var i = 0; i < oppBooks.length; i++) booked[oppBooks[i]] = true;
 
-  for (var idx = 0; idx < legalActions.length; idx++) {
-    var action = legalActions[idx];
-    var r = action.rank;
-    var myCount = myCounts[r] || 0;
-    var est = estimateChance(
-      r,
-      myCount,
-      oppHandSize,
-      deckSize,
-      !!allBooked[r],
-      !!evidence.missRanks[r],
-      useVisibleOppHand ? (oppCounts[r] || 0) : undefined
-    );
+  // Parse log for evidence
+  var oppAsked = {};       // ranks opponent asked for (they probably have them)
+  var denied = {};         // ranks where we got go-fished (opponent doesn't have)
+  var oppDrawsSinceDeny = {}; // how many draws opponent made since denying us
+  var lastAsk = null;
 
-    var bookBonus = getBookBonus(myCount);
-    var q = est.p * (est.expectedCards + bookBonus + TUNING.turnValue) - (1 - est.p) * TUNING.missPenalty;
+  var askRe = /^(.+?) asks for (A|10|[2-9JQK])\.$/;
+  var fishRe = /^(.+?) says go fish\.$/;
+  var giveRe = /^(.+?) gives (\d+) card\(s\)\.$/;
+  var drawRe = /^(.+?) draws a card\.$/;
 
-    if (evidence.oppAskedRanks[r]) q *= TUNING.oppAskBonus;
-    if (evidence.missRanks[r] && !useVisibleOppHand) q *= TUNING.missRankPenalty;
+  for (var i = 0; i < log.length; i++) {
+    var line = log[i];
+    if (typeof line !== 'string') continue;
 
-    var row = {
-      action: action,
-      score: q,
-      p: est.p,
-      rawP: est.rawP,
-      myCount: myCount,
-      immediateBook: myCount >= 3
-    };
-    scored.push(row);
+    var m = line.match(askRe);
+    if (m) {
+      lastAsk = { asker: m[1], rank: m[2] };
+      if (m[1] === opp.name) {
+        oppAsked[m[2]] = true;
+      }
+      continue;
+    }
 
-    if (!highestProb || row.p > highestProb.p || (row.p === highestProb.p && row.myCount > highestProb.myCount)) {
-      highestProb = row;
+    m = line.match(giveRe);
+    if (m && lastAsk) {
+      if (lastAsk.asker === me.name && m[1] === opp.name) {
+        // We successfully got cards — opponent had this rank
+        delete denied[lastAsk.rank];
+      }
+      continue;
+    }
+
+    m = line.match(fishRe);
+    if (m && lastAsk) {
+      if (lastAsk.asker === me.name && m[1] === opp.name) {
+        // Opponent denied us — they don't have this rank (right now)
+        denied[lastAsk.rank] = true;
+        oppDrawsSinceDeny[lastAsk.rank] = 0;
+      }
+      continue;
+    }
+
+    m = line.match(drawRe);
+    if (m && m[1] === opp.name) {
+      // Opponent drew a card — they might now have denied ranks
+      for (var rank in oppDrawsSinceDeny) {
+        oppDrawsSinceDeny[rank] = (oppDrawsSinceDeny[rank] || 0) + 1;
+      }
     }
   }
 
-  scored.sort(function(a, b) {
-    if (a.rawP >= 0.99 && b.rawP < 0.99) return -1;
-    if (b.rawP >= 0.99 && a.rawP < 0.99) return 1;
-    if (a.rawP >= 0.99 && b.rawP >= 0.99 && a.myCount !== b.myCount) return b.myCount - a.myCount;
-    if (b.score !== a.score) return b.score - a.score;
-    if (b.myCount !== a.myCount) return b.myCount - a.myCount;
-    return (RANK_INDEX[a.action.rank] || 0) - (RANK_INDEX[b.action.rank] || 0);
-  });
+  var best = legalActions[0];
+  var bestScore = -Infinity;
 
-  var chosen = scored[0];
-  if (highestProb && !chosen.immediateBook && highestProb.p > chosen.p + TUNING.dominanceGap) {
-    chosen = highestProb;
+  for (var i = 0; i < legalActions.length; i++) {
+    var action = legalActions[i];
+    var rank = action.rank;
+    var myCount = myCounts[rank] || 0;
+
+    // Hypergeometric P(opponent has at least 1)
+    var remaining = booked[rank] ? 0 : Math.max(0, 4 - myCount);
+    var totalUnknown = Math.max(1, deckSize + oppHandSize);
+    var p = 0;
+    if (remaining > 0 && oppHandSize > 0) {
+      var pMiss = 1;
+      for (var k = 0; k < oppHandSize; k++) {
+        var poolLeft = totalUnknown - k;
+        if (poolLeft <= 0) break;
+        pMiss *= Math.max(0, (poolLeft - remaining) / poolLeft);
+      }
+      p = 1 - pMiss;
+    }
+
+    // Calibration deflation
+    if (p > 0.01 && p < 0.99) p *= 0.85;
+
+    // Evidence adjustments
+    if (oppAsked[rank]) p = Math.min(1, p * 1.5);  // They asked → they likely have it
+    
+    if (denied[rank]) {
+      var draws = oppDrawsSinceDeny[rank] || 0;
+      if (draws === 0) {
+        p = 0.02;
+      } else {
+        var recoveryP = 1 - Math.pow(1 - remaining / Math.max(1, totalUnknown), draws);
+        p = Math.min(p, recoveryP * 0.85);
+      }
+    }
+
+    // Score: probability × book weight + evidence bonuses
+    var bookWeight = myCount >= 3 ? 20 : myCount >= 2 ? 5 : 1;
+    var score = p * bookWeight;
+    if (oppAsked[rank]) score *= 1.4;
+
+    if (score > bestScore || (score === bestScore && myCount > (myCounts[(best || {}).rank] || 0))) {
+      bestScore = score;
+      best = action;
+    }
   }
 
-  var choice = chosen.action;
-  for (var t = 0; t < legalActions.length; t++) {
-    var legal = legalActions[t];
-    if (legal.type === choice.type && legal.rank === choice.rank) return choice;
-  }
-  return legalActions[0];
+  return best;
 }
 
-(function registerPolicy(root) {
+(function(root) {
   var api = { pickMove: pickMove };
-  if (typeof module === "object" && module.exports) {
-    module.exports = api;
-  }
+  if (typeof module === "object" && module.exports) module.exports = api;
   root.GoFishPolicies = root.GoFishPolicies || {};
   root.GoFishPolicies.otherai = api;
 })(typeof self !== "undefined" ? self : this);
