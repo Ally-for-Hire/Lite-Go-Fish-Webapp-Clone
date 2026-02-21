@@ -4,6 +4,7 @@ const STARTING_HAND = 7;
 const REFILL_HAND = 5;
 const MAX_LOG = 12;
 const AI_THINK_DELAY = 700;
+const AI_DIFFICULTY = "dad-slayer";
 
 const state = {
   players: [],
@@ -21,6 +22,8 @@ const state = {
     tick: 0,
     timerId: null,
     memory: null,
+    difficulty: AI_DIFFICULTY,
+    inference: null,
   },
 };
 
@@ -78,6 +81,55 @@ function initAiMemory() {
   };
 }
 
+function initAiInference() {
+  return {
+    likelyOpponentHas: createRankMap(0),
+    confidence: createRankMap(0),
+  };
+}
+
+function getDifficultyWeights() {
+  const mode = state.ai.difficulty || "normal";
+  if (mode === "easy") {
+    return {
+      completion: 0.28,
+      nearBook: 0.08,
+      deny: 0.08,
+      info: 0.34,
+      memory: 0.1,
+      lookahead: 0.12,
+    };
+  }
+  if (mode === "hard") {
+    return {
+      completion: 0.36,
+      nearBook: 0.16,
+      deny: 0.15,
+      info: 0.1,
+      memory: 0.09,
+      lookahead: 0.14,
+    };
+  }
+  if (mode === "dad-slayer") {
+    return {
+      completion: 0.34,
+      nearBook: 0.19,
+      deny: 0.17,
+      info: 0.08,
+      memory: 0.08,
+      lookahead: 0.14,
+    };
+  }
+  return {
+    completion: 0.33,
+    nearBook: 0.14,
+    deny: 0.12,
+    info: 0.16,
+    memory: 0.1,
+    lookahead: 0.15,
+  };
+}
+
 function resetAiState() {
   if (state.ai.timerId) {
     clearTimeout(state.ai.timerId);
@@ -86,6 +138,7 @@ function resetAiState() {
   state.ai.tick = 0;
   state.ai.timerId = null;
   state.ai.memory = initAiMemory();
+  state.ai.inference = initAiInference();
 }
 
 function isAiEnabled() {
@@ -266,11 +319,41 @@ function memoryBias(rank) {
   return bias;
 }
 
+function updateInferenceForRank(rank, delta, confidenceDelta) {
+  if (!state.ai.inference) {
+    state.ai.inference = initAiInference();
+  }
+  const inf = state.ai.inference;
+  inf.likelyOpponentHas[rank] = clamp((inf.likelyOpponentHas[rank] || 0) + delta, 0, 1);
+  inf.confidence[rank] = clamp((inf.confidence[rank] || 0) + confidenceDelta, 0, 1);
+}
+
+function inferenceBias(rank) {
+  if (!state.ai.inference) {
+    return 0;
+  }
+  const inf = state.ai.inference;
+  const likely = inf.likelyOpponentHas[rank] || 0;
+  const conf = inf.confidence[rank] || 0;
+  return (likely - 0.5) * conf * 0.8;
+}
+
+function decayInference() {
+  if (!state.ai.inference) {
+    return;
+  }
+  for (const rank of RANKS) {
+    state.ai.inference.likelyOpponentHas[rank] *= 0.985;
+    state.ai.inference.confidence[rank] *= 0.975;
+  }
+}
+
 function bumpAiTick() {
   if (!isAiEnabled()) {
     return null;
   }
   state.ai.tick += 1;
+  decayInference();
   return state.ai.tick;
 }
 
@@ -324,6 +407,7 @@ function logBooks(player, books) {
       state.ai.memory.lastOpponentSuccess[rank] = null;
       state.ai.memory.lastAIGoFish[rank] = null;
       state.ai.memory.lastAITook[rank] = null;
+      updateInferenceForRank(rank, -1, 0.5);
     }
   }
   if (books.length === 1) {
@@ -422,16 +506,20 @@ function updateAiMemoryForAsk(askerIndex, rank, takenCount, tick) {
   if (askerIndex === aiIndex) {
     if (takenCount > 0) {
       state.ai.memory.lastAITook[rank] = tick;
+      updateInferenceForRank(rank, -0.6, 0.4);
     } else {
       state.ai.memory.lastAIGoFish[rank] = tick;
+      updateInferenceForRank(rank, -0.3, 0.3);
     }
     return;
   }
 
   if (askerIndex === getOpponentIndex(aiIndex)) {
     state.ai.memory.lastOpponentAsk[rank] = tick;
+    updateInferenceForRank(rank, 0.35, 0.25);
     if (takenCount > 0) {
       state.ai.memory.lastOpponentSuccess[rank] = tick;
+      updateInferenceForRank(rank, 0.35, 0.3);
     }
   }
 }
@@ -450,7 +538,36 @@ function estimateOpponentPressure(rank) {
     pressure += decay(0.45, successAge, 0.07);
   }
 
+  pressure += Math.max(0, inferenceBias(rank));
+
   return clamp(pressure, 0, 1);
+}
+
+function getAiStyle(deckPressure, aiCounts) {
+  let strongestPair = 0;
+  let nearBooks = 0;
+  for (const rank of RANKS) {
+    strongestPair = Math.max(strongestPair, aiCounts[rank]);
+    if (aiCounts[rank] >= 3) {
+      nearBooks += 1;
+    }
+  }
+
+  if (nearBooks > 0 || deckPressure < 0.25 || strongestPair >= 3) {
+    return "greedy";
+  }
+  if (deckPressure > 0.6) {
+    return "deny";
+  }
+  return "balanced";
+}
+
+function lookaheadValue(rank, ownCount, adjustedProb, expectedTake, deckPressure) {
+  const hitBookChance = clamp((ownCount + expectedTake) / 4, 0, 1);
+  const missPenalty = clamp(0.2 + deckPressure * 0.35, 0, 1);
+  const bonusTurnValue = adjustedProb * clamp(0.5 + ownCount * 0.12, 0, 1);
+
+  return hitBookChance * 0.55 + bonusTurnValue * 0.35 - (1 - adjustedProb) * missPenalty * 0.3;
 }
 
 function chooseAiRank() {
@@ -465,6 +582,8 @@ function chooseAiRank() {
   const opponentIndex = getOpponentIndex(aiIndex);
   const opponentHandSize = state.players[opponentIndex].hand.length;
   const deckPressure = clamp(state.deck.length / 52, 0, 1);
+  const style = getAiStyle(deckPressure, counts);
+  const w = getDifficultyWeights();
 
   let bestRank = available[0];
   let bestScore = -Infinity;
@@ -472,7 +591,7 @@ function chooseAiRank() {
   for (const rank of available) {
     const ownCount = counts[rank];
     const base = estimateOpponentProbability(rank, aiIndex, counts, opponentHandSize);
-    const bias = memoryBias(rank);
+    const bias = memoryBias(rank) + inferenceBias(rank);
     const adjustedProb = clamp(base.probHas + bias, 0, 1);
 
     const expectedTake = adjustedProb * Math.max(1, base.expectedCount);
@@ -482,15 +601,30 @@ function chooseAiRank() {
     const nearBookBonus = ownCount >= 3 ? 1 : ownCount === 2 ? 0.45 : 0;
     const denyScore = estimateOpponentPressure(rank) * clamp(ownCount / 3, 0, 1);
     const infoScore = binaryEntropy(adjustedProb);
+    const memoryScore = clamp(0.5 + bias, 0, 1);
+    const lookaheadScore = lookaheadValue(rank, ownCount, adjustedProb, expectedTake, deckPressure);
 
-    // Early game: information + pressure denial matters more.
-    // Late game: immediate conversion to books dominates.
+    let styleCompletion = 1;
+    let styleDeny = 1;
+    let styleInfo = 1;
+
+    if (style === "greedy") {
+      styleCompletion = 1.18;
+      styleDeny = 0.9;
+      styleInfo = 0.82;
+    } else if (style === "deny") {
+      styleCompletion = 0.92;
+      styleDeny = 1.22;
+      styleInfo = 1.05;
+    }
+
     const score =
-      completionScore * (0.38 + (1 - deckPressure) * 0.27) +
-      nearBookBonus * 0.16 +
-      denyScore * (0.13 + deckPressure * 0.1) +
-      infoScore * 0.14 +
-      clamp(0.5 + bias, 0, 1) * 0.09;
+      completionScore * w.completion * styleCompletion +
+      nearBookBonus * w.nearBook +
+      denyScore * w.deny * styleDeny +
+      infoScore * w.info * styleInfo +
+      memoryScore * w.memory +
+      lookaheadScore * w.lookahead;
 
     if (score > bestScore) {
       bestScore = score;
@@ -499,7 +633,6 @@ function chooseAiRank() {
     }
 
     if (score === bestScore) {
-      // tie-breakers: prefer faster books, then stronger deny.
       if (ownCount > counts[bestRank]) {
         bestRank = rank;
         continue;
