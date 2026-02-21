@@ -436,6 +436,23 @@ function updateAiMemoryForAsk(askerIndex, rank, takenCount, tick) {
   }
 }
 
+function estimateOpponentPressure(rank) {
+  const memory = state.ai.memory;
+  let pressure = 0;
+
+  const askAge = ageFrom(memory.lastOpponentAsk[rank]);
+  if (askAge !== null) {
+    pressure += decay(0.35, askAge, 0.06);
+  }
+
+  const successAge = ageFrom(memory.lastOpponentSuccess[rank]);
+  if (successAge !== null) {
+    pressure += decay(0.45, successAge, 0.07);
+  }
+
+  return clamp(pressure, 0, 1);
+}
+
 function chooseAiRank() {
   const aiIndex = state.ai.playerIndex;
   const aiPlayer = state.players[aiIndex];
@@ -447,30 +464,51 @@ function chooseAiRank() {
 
   const opponentIndex = getOpponentIndex(aiIndex);
   const opponentHandSize = state.players[opponentIndex].hand.length;
+  const deckPressure = clamp(state.deck.length / 52, 0, 1);
 
   let bestRank = available[0];
   let bestScore = -Infinity;
 
   for (const rank of available) {
+    const ownCount = counts[rank];
     const base = estimateOpponentProbability(rank, aiIndex, counts, opponentHandSize);
     const bias = memoryBias(rank);
     const adjustedProb = clamp(base.probHas + bias, 0, 1);
-    const entropy = binaryEntropy(adjustedProb);
-    const expectedNormalized =
-      base.unknownCopies === 0 ? 0 : base.expectedCount / base.unknownCopies;
-    const memoryScore = clamp(0.5 + bias, 0, 1);
-    const greedyScore = counts[rank] / 4;
 
+    const expectedTake = adjustedProb * Math.max(1, base.expectedCount);
+    const completionNow = ownCount + expectedTake;
+    const completionScore = clamp(completionNow / 4, 0, 1);
+
+    const nearBookBonus = ownCount >= 3 ? 1 : ownCount === 2 ? 0.45 : 0;
+    const denyScore = estimateOpponentPressure(rank) * clamp(ownCount / 3, 0, 1);
+    const infoScore = binaryEntropy(adjustedProb);
+
+    // Early game: information + pressure denial matters more.
+    // Late game: immediate conversion to books dominates.
     const score =
-      expectedNormalized * 0.55 + entropy * 0.25 + memoryScore * 0.12 + greedyScore * 0.08;
+      completionScore * (0.38 + (1 - deckPressure) * 0.27) +
+      nearBookBonus * 0.16 +
+      denyScore * (0.13 + deckPressure * 0.1) +
+      infoScore * 0.14 +
+      clamp(0.5 + bias, 0, 1) * 0.09;
 
     if (score > bestScore) {
       bestScore = score;
       bestRank = rank;
       continue;
     }
-    if (score === bestScore && counts[rank] > counts[bestRank]) {
-      bestRank = rank;
+
+    if (score === bestScore) {
+      // tie-breakers: prefer faster books, then stronger deny.
+      if (ownCount > counts[bestRank]) {
+        bestRank = rank;
+        continue;
+      }
+      const denyA = estimateOpponentPressure(rank);
+      const denyB = estimateOpponentPressure(bestRank);
+      if (denyA > denyB) {
+        bestRank = rank;
+      }
     }
   }
 
