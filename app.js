@@ -136,7 +136,7 @@ function initTournamentSelectors() {
   }
 
   elements.tournamentPolicyA.value = names.includes("dadslayer") ? "dadslayer" : names[0] || "random";
-  elements.tournamentPolicyB.value = names.includes("otherai") ? "otherai" : names[0] || "random";
+  elements.tournamentPolicyB.value = names.includes("clawbuddy-v1") ? "clawbuddy-v1" : names[0] || "random";
 }
 
 function applyModeUI() {
@@ -688,7 +688,7 @@ function updateTournamentBars(aName, bName, aWins, bWins, done) {
 async function runTournamentFromGui() {
   const games = Math.max(1, Number(elements.tournamentGames?.value || 100));
   const policyAName = elements.tournamentPolicyA?.value || "dadslayer";
-  const policyBName = elements.tournamentPolicyB?.value || "otherai";
+  const policyBName = elements.tournamentPolicyB?.value || "clawbuddy-v1";
   const policyA = resolveTournamentPolicy(policyAName);
   const policyB = resolveTournamentPolicy(policyBName);
 

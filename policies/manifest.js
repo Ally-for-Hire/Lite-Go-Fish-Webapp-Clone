@@ -2,5 +2,5 @@
 window.GoFishPolicyManifest = [
   "random.js",
   "dadslayer.js",
-  "clawbuddy-v1.js",
+  "clawbuddyv1.js",
 ];

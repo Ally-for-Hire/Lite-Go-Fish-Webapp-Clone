@@ -32,7 +32,11 @@ function loadAllPolicies() {
     out[key] = fn;
 
     // Optional aliases for convenience.
-    if (key === "clawbuddy-v1") out.otherai = fn;
+    if (key === "clawbuddyv1" || key === "clawbuddy-v1") {
+      out["clawbuddy-v1"] = fn;
+      out.clawbuddyv1 = fn;
+      out.otherai = fn;
+    }
   }
 
   return out;
