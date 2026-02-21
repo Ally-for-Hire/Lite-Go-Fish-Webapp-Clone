@@ -55,6 +55,38 @@ function runBatch(games = 1000, policyA = "dad-slayer", policyB = "baseline") {
   return stats;
 }
 
+function runBatchFair(games = 1000, policyA = "dad-slayer", policyB = "baseline") {
+  const halfAFirst = Math.floor(games / 2);
+  const halfBFirst = games - halfAFirst;
+
+  const aFirst = runBatch(halfAFirst, policyA, policyB);
+  const bFirst = runBatch(halfBFirst, policyB, policyA);
+
+  const aWins = (aFirst.p1 || 0) + (bFirst.p2 || 0);
+  const bWins = (aFirst.p2 || 0) + (bFirst.p1 || 0);
+  const ties = (aFirst.tie || 0) + (bFirst.tie || 0);
+
+  const avgTurns = Number((((aFirst.avgTurns || 0) * halfAFirst + (bFirst.avgTurns || 0) * halfBFirst) / Math.max(games, 1)).toFixed(2));
+
+  return {
+    games,
+    policyA,
+    policyB,
+    fair: true,
+    policyAWins: aWins,
+    policyBWins: bWins,
+    ties,
+    policyAWinRate: Number(((aWins / Math.max(games, 1)) * 100).toFixed(2)),
+    policyBWinRate: Number(((bWins / Math.max(games, 1)) * 100).toFixed(2)),
+    tieRate: Number(((ties / Math.max(games, 1)) * 100).toFixed(2)),
+    avgTurns,
+    breakdown: {
+      aAsP1: aFirst,
+      bAsP1: bFirst,
+    },
+  };
+}
+
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
 
 out({ ok: true, ready: true, protocol: "gofish-cli.v1" });
@@ -101,6 +133,14 @@ rl.on("line", (line) => {
     const policyA = String(msg.policyA || "dad-slayer");
     const policyB = String(msg.policyB || "baseline");
     out({ ok: true, stats: runBatch(games, policyA, policyB) });
+    return;
+  }
+
+  if (cmd === "batch_fair") {
+    const games = Number(msg.games || 1000);
+    const policyA = String(msg.policyA || "dad-slayer");
+    const policyB = String(msg.policyB || "baseline");
+    out({ ok: true, stats: runBatchFair(games, policyA, policyB) });
     return;
   }
 
