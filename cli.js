@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+const fs = require("fs");
+const path = require("path");
 const readline = require("readline");
 const Engine = require("./engine");
 
@@ -13,11 +15,30 @@ function loadPolicyFn(file) {
   }
 }
 
-const policyFns = {
-  random: loadPolicyFn("./policies/random"),
-  dadslayer: loadPolicyFn("./policies/dadslayer"),
-  otherai: loadPolicyFn("./policies/clawbuddy-v1"),
-};
+function loadAllPolicies() {
+  const out = {};
+  const policiesDir = path.join(__dirname, "policies");
+  const files = fs.existsSync(policiesDir) ? fs.readdirSync(policiesDir) : [];
+
+  for (const file of files) {
+    if (!file.endsWith(".js")) continue;
+    if (file === "policy-loader.js") continue;
+
+    const full = `./policies/${file.replace(/\.js$/, "")}`;
+    const fn = loadPolicyFn(full);
+    if (!fn) continue;
+
+    const key = file.replace(/\.js$/, "").toLowerCase();
+    out[key] = fn;
+
+    // Optional aliases for convenience.
+    if (key === "clawbuddy-v1") out.otherai = fn;
+  }
+
+  return out;
+}
+
+const policyFns = loadAllPolicies();
 
 function out(payload) {
   process.stdout.write(`${JSON.stringify(payload)}\n`);

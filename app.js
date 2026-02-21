@@ -1164,10 +1164,18 @@ window.GoFishJsonBridge = {
   },
 };
 
-initPolicySelect();
-initTournamentSelectors();
-if (elements.appModeSelect) {
-  elements.appModeSelect.value = state.settings.mode;
+async function bootApp() {
+  if (typeof window.__loadPolicies === "function") {
+    await window.__loadPolicies();
+  }
+
+  initPolicySelect();
+  initTournamentSelectors();
+  if (elements.appModeSelect) {
+    elements.appModeSelect.value = state.settings.mode;
+  }
+  applyModeUI();
+  newGame();
 }
-applyModeUI();
-newGame();
+
+void bootApp();
