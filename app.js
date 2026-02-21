@@ -102,26 +102,35 @@ function getDifficultyWeights() {
       info: 0.34,
       memory: 0.1,
       lookahead: 0.12,
+      monteCarlo: 0.06,
+      infoValue: 0.04,
+      temperature: 0.42,
     };
   }
   if (mode === "hard") {
     return {
-      completion: 0.36,
-      nearBook: 0.16,
-      deny: 0.15,
+      completion: 0.34,
+      nearBook: 0.15,
+      deny: 0.14,
       info: 0.1,
-      memory: 0.09,
-      lookahead: 0.14,
+      memory: 0.08,
+      lookahead: 0.12,
+      monteCarlo: 0.14,
+      infoValue: 0.07,
+      temperature: 0.2,
     };
   }
   if (mode === "dad-slayer") {
     return {
-      completion: 0.34,
-      nearBook: 0.19,
-      deny: 0.17,
-      info: 0.08,
-      memory: 0.08,
-      lookahead: 0.14,
+      completion: 0.31,
+      nearBook: 0.17,
+      deny: 0.15,
+      info: 0.07,
+      memory: 0.07,
+      lookahead: 0.12,
+      monteCarlo: 0.2,
+      infoValue: 0.09,
+      temperature: 0.12,
     };
   }
   return {
@@ -131,6 +140,9 @@ function getDifficultyWeights() {
     info: 0.16,
     memory: 0.1,
     lookahead: 0.15,
+    monteCarlo: 0.1,
+    infoValue: 0.06,
+    temperature: 0.28,
   };
 }
 
@@ -595,10 +607,34 @@ function createZeroCounts() {
   return counts;
 }
 
+function knownUnavailableCounts(aiIndex) {
+  const result = createZeroCounts();
+  const aiPlayer = state.players[aiIndex];
+  const oppPlayer = state.players[getOpponentIndex(aiIndex)];
+
+  for (const card of aiPlayer.hand) {
+    result[card.rank] += 1;
+  }
+
+  for (const rank of aiPlayer.books) {
+    result[rank] = 4;
+  }
+  for (const rank of oppPlayer.books) {
+    result[rank] = 4;
+  }
+
+  return result;
+}
+
+function rankEntropyFromProbability(prob) {
+  return binaryEntropy(clamp(prob, 0, 1));
+}
+
 function normalizeParticles(aiIndex, aiCounts, opponentHandSize) {
   const inf = state.ai.inference || initAiInference();
   const particles = [];
-  const sampleCount = state.ai.difficulty === "dad-slayer" ? 220 : 120;
+  const sampleCount = state.ai.difficulty === "dad-slayer" ? 300 : 140;
+  const knownUnavailable = knownUnavailableCounts(aiIndex);
 
   for (let i = 0; i < sampleCount; i += 1) {
     const opp = createZeroCounts();
@@ -611,7 +647,7 @@ function normalizeParticles(aiIndex, aiCounts, opponentHandSize) {
         continue;
       }
 
-      const maxCopies = Math.max(0, 4 - aiCounts[rank]);
+      const maxCopies = Math.max(0, 4 - (knownUnavailable[rank] || 0));
       const likely = clamp((inf.likelyOpponentHas[rank] || 0) + 0.15, 0, 1);
       const conf = clamp(inf.confidence[rank] || 0, 0, 1);
       const target = Math.round(maxCopies * likely * (0.35 + conf * 0.65));
@@ -628,7 +664,7 @@ function normalizeParticles(aiIndex, aiCounts, opponentHandSize) {
         if (aiPlayer.books.includes(rank) || oppPlayer.books.includes(rank)) {
           return false;
         }
-        return opp[rank] < Math.max(0, 4 - aiCounts[rank]);
+        return opp[rank] < Math.max(0, 4 - (knownUnavailable[rank] || 0));
       });
       if (candidates.length === 0) {
         break;
@@ -777,6 +813,78 @@ function endgameRankScore(rank, aiCounts, opCounts, deckSize) {
   return minimaxEndgame(root, "op", 3, -Infinity, Infinity);
 }
 
+function monteCarloRankEV(rank, aiCounts, deckSize) {
+  const inf = state.ai.inference;
+  if (!inf || !Array.isArray(inf.particles) || inf.particles.length === 0) {
+    return 0;
+  }
+
+  const rollouts = state.ai.difficulty === "dad-slayer" ? 80 : 40;
+  let total = 0;
+
+  for (let i = 0; i < rollouts; i += 1) {
+    const particle = inf.particles[Math.floor(Math.random() * inf.particles.length)];
+    const opCounts = cloneCounts(particle);
+    const mine = cloneCounts(aiCounts);
+
+    const taken = opCounts[rank] || 0;
+    let score = 0;
+
+    if (taken > 0) {
+      mine[rank] += taken;
+      opCounts[rank] = 0;
+      const booksMade = applyBooksOnCounts(mine);
+      score += taken * 0.6 + booksMade * 2.4;
+    } else {
+      score -= 0.25;
+      if (deckSize > 0) {
+        score += 0.08;
+      }
+      const oppBest = Math.max(...RANKS.map((r) => opCounts[r] || 0));
+      score -= oppBest * 0.15;
+    }
+
+    total += score;
+  }
+
+  return total / rollouts;
+}
+
+function informationValueScore(rank, fusedProb) {
+  const priorEntropy = rankEntropyFromProbability(fusedProb);
+  const posteriorIfHit = rankEntropyFromProbability(0.95);
+  const posteriorIfMiss = rankEntropyFromProbability(0.05);
+  const expectedPosterior = fusedProb * posteriorIfHit + (1 - fusedProb) * posteriorIfMiss;
+  return Math.max(0, priorEntropy - expectedPosterior);
+}
+
+function softmaxPick(candidates, temperature) {
+  if (candidates.length === 0) {
+    return null;
+  }
+  if (candidates.length === 1 || temperature <= 0.0001) {
+    return candidates[0].rank;
+  }
+
+  const top = Math.max(...candidates.map((c) => c.score));
+  const scaled = candidates.map((c) => ({
+    rank: c.rank,
+    value: Math.exp((c.score - top) / temperature),
+  }));
+
+  const sum = scaled.reduce((s, x) => s + x.value, 0);
+  let roll = Math.random() * Math.max(sum, 0.0001);
+
+  for (const item of scaled) {
+    roll -= item.value;
+    if (roll <= 0) {
+      return item.rank;
+    }
+  }
+
+  return scaled[scaled.length - 1].rank;
+}
+
 function chooseAiRank() {
   const aiIndex = state.ai.playerIndex;
   const aiPlayer = state.players[aiIndex];
@@ -797,6 +905,7 @@ function chooseAiRank() {
 
   let bestRank = available[0];
   let bestScore = -Infinity;
+  const candidates = [];
 
   for (const rank of available) {
     const ownCount = counts[rank];
@@ -816,6 +925,8 @@ function chooseAiRank() {
     const infoScore = binaryEntropy(adjustedProb);
     const memoryScore = clamp(0.5 + bias, 0, 1);
     const lookaheadScore = lookaheadValue(rank, ownCount, adjustedProb, expectedTake, deckPressure);
+    const monteCarloScore = monteCarloRankEV(rank, counts, state.deck.length);
+    const infoValue = informationValueScore(rank, fusedProb);
 
     let endgameScore = 0;
     if (endgame) {
@@ -847,7 +958,11 @@ function chooseAiRank() {
       infoScore * w.info * styleInfo +
       memoryScore * w.memory +
       lookaheadScore * w.lookahead +
+      monteCarloScore * w.monteCarlo +
+      infoValue * w.infoValue +
       (endgame ? endgameScore * 0.02 : 0);
+
+    candidates.push({ rank, score });
 
     if (score > bestScore) {
       bestScore = score;
@@ -868,7 +983,9 @@ function chooseAiRank() {
     }
   }
 
-  return bestRank;
+  const nearOptimal = candidates.filter((c) => c.score >= bestScore - 0.08);
+  const picked = softmaxPick(nearOptimal, w.temperature);
+  return picked || bestRank;
 }
 
 function aiTakeTurn() {
