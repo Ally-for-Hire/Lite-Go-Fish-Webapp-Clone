@@ -9,3 +9,4 @@ function pickMove(state, legalActions) {
 }
 
 module.exports = { pickMove };
+// ci-trigger: 3-game smoke test
