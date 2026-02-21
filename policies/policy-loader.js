@@ -1,22 +1,29 @@
 (function (root) {
-  async function loadPolicyScripts() {
-    try {
-      const files = Array.isArray(root.GoFishPolicyManifest) ? root.GoFishPolicyManifest : [];
-      if (!files.length) throw new Error("GoFishPolicyManifest is empty or missing");
+  async function loadOne(file) {
+    if (typeof file !== "string" || !file.endsWith(".js")) return;
+    const src = `policies/${file}`;
 
-      for (const file of files) {
-        if (typeof file !== "string" || !file.endsWith(".js")) continue;
-        await new Promise((resolve, reject) => {
-          const s = document.createElement("script");
-          s.src = `policies/${file}`;
-          s.async = false;
-          s.onload = resolve;
-          s.onerror = () => reject(new Error(`failed to load ${file}`));
-          document.body.appendChild(s);
-        });
-      }
-    } catch (err) {
-      console.error("Policy loader error:", err);
+    // Avoid duplicate loads.
+    if (document.querySelector(`script[data-policy-src="${src}"]`)) return;
+
+    await new Promise((resolve) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.async = false;
+      s.dataset.policySrc = src;
+      s.onload = resolve;
+      s.onerror = () => {
+        console.warn(`Policy loader: failed to load ${src}`);
+        resolve();
+      };
+      document.body.appendChild(s);
+    });
+  }
+
+  async function loadPolicyScripts() {
+    const files = Array.isArray(root.GoFishPolicyManifest) ? root.GoFishPolicyManifest : [];
+    for (const file of files) {
+      await loadOne(file);
     }
   }
 

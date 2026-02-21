@@ -104,6 +104,15 @@ function initPolicySelect() {
   const names = getPolicyNames();
   elements.aiDifficultySelect.innerHTML = "";
 
+  if (!names.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No policies loaded";
+    elements.aiDifficultySelect.appendChild(option);
+    elements.aiDifficultySelect.disabled = true;
+    return;
+  }
+
   for (const name of names) {
     const option = document.createElement("option");
     option.value = name;
@@ -122,6 +131,8 @@ function initTournamentSelectors() {
 
   elements.tournamentPolicyA.innerHTML = "";
   elements.tournamentPolicyB.innerHTML = "";
+
+  if (!names.length) return;
 
   for (const name of names) {
     const a = document.createElement("option");
