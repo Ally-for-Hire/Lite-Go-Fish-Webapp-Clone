@@ -4,7 +4,7 @@ const STARTING_HAND = 7;
 const REFILL_HAND = 5;
 const MAX_LOG = 12;
 const AI_THINK_DELAY = 700;
-const AI_DIFFICULTY = "dadslayer";
+const AI_DIFFICULTY = "dadslayer-v1";
 const CLAUDE_MOVE_TIMEOUT_MS = 900;
 
 const state = {
@@ -137,7 +137,7 @@ function initPolicySelect() {
   }
 
   if (!names.includes(state.ai.difficulty)) {
-    state.ai.difficulty = names.includes("dadslayer") ? "dadslayer" : names[0] || AI_DIFFICULTY;
+    state.ai.difficulty = names.includes("dadslayer-v1") ? "dadslayer-v1" : names[0] || AI_DIFFICULTY;
   }
 }
 
@@ -162,7 +162,7 @@ function initTournamentSelectors() {
     elements.tournamentPolicyB.appendChild(b);
   }
 
-  elements.tournamentPolicyA.value = names.includes("dadslayer") ? "dadslayer" : names[0] || "random";
+  elements.tournamentPolicyA.value = names.includes("dadslayer-v1") ? "dadslayer-v1" : names[0] || "random";
   elements.tournamentPolicyB.value = names.includes("clawbuddy-v1") ? "clawbuddy-v1" : names[0] || "random";
 }
 
@@ -714,7 +714,7 @@ function updateTournamentBars(aName, bName, aWins, bWins, done) {
 
 async function runTournamentFromGui() {
   const games = Math.max(1, Number(elements.tournamentGames?.value || 100));
-  const policyAName = elements.tournamentPolicyA?.value || "dadslayer";
+  const policyAName = elements.tournamentPolicyA?.value || "dadslayer-v1";
   const policyBName = elements.tournamentPolicyB?.value || "clawbuddy-v1";
   const policyA = resolveTournamentPolicy(policyAName);
   const policyB = resolveTournamentPolicy(policyBName);

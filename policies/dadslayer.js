@@ -2,7 +2,7 @@
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
   root.GoFishPolicies = root.GoFishPolicies || {};
-  root.GoFishPolicies.dadslayer = api;
+  root.GoFishPolicies['dadslayer-v1'] = api;
 })(typeof self !== "undefined" ? self : this, function () {
   function countHand(hand) {
     const out = {};
